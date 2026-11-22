@@ -70,7 +70,11 @@ candidates:                  # block 3: candidate pools
     city_presence: 1
   hiring:
     days: 30
-    title_keywords: [sponsorship, partnerships, brand manager, event marketing, brand marketing]
+    # Not bare "partnerships": it's mostly business development (lending, B2B sales, travel
+    # groups: 6 of 8 postings in the job_search_sponsor_roles fixture), not a sponsorship budget.
+    # Free count, 22 Nov, India, 30 days: 106 postings with it, 44 with this list.
+    title_keywords: [sponsorship, brand partnerships, marketing partnerships, event partnerships,
+                     brand manager, event marketing, brand marketing]
     limit: 100               # job postings, ~0.03 credits each
   past_sponsors:
     days: 365

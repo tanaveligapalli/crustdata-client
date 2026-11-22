@@ -14,8 +14,8 @@ Read this before you code. It's written for teammates and for their coding agent
 **Flow:**
 1. **Intake.** The host describes the event and their organization → a structured `Brief`.
 2. **Verify the host.** The host organization must be real before any outreach (stops the platform being used to phish sponsors).
-3. **Find sponsors.** Three candidate pools, merged by Crustdata company ID:
-   past sponsors of similar events · companies hiring sponsorship/partnerships/brand/event-marketing roles in the last 30 days · Crustdata company search. Plus look-alikes of the host's past sponsors.
+3. **Find sponsors.** Five candidate pools, merged by Crustdata company ID:
+   past sponsors of similar events (LinkedIn and Instagram posts) · companies hiring sponsorship/partnerships/brand/event-marketing roles in the last 30 days · the host's own past sponsors · their look-alikes · Crustdata company search.
 4. **Score.** Hard filters (duplicates, already a sponsor, category conflicts, restricted categories), then a weighted score. Every input is sourced.
 5. **Contacts.** Decision-maker's name, title, business email, only for companies the host selects.
 6. **Outreach.** Host approves the campaign → agent sends → reads replies → answers questions from the brief only → books meetings → hands negotiation to the host.
@@ -65,8 +65,12 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `brief.py` | Block 4: host's description → `Brief`. Model extracts, code checks every value against the text. |
 | `scoring.py` | Block 4: `score` / `rank` candidates for a `Brief`. Pure code: hard filters, weights from `config.yaml`. |
 | `candidates.py` | Block 3: `Brief` → deduplicated `Candidate` list from five pools, with sourced signals. |
+| `instagram_sponsors.py`, `src/extract.py`, `src/match.py` | Block 3b: post text → sponsor names (model extracts, code checks) → company IDs → `Evidence`. Also used by block 3 for LinkedIn posts. |
+| `host_check.py` | Host verification: the host's own website must name the host, or outreach is blocked. |
+| `outreach.py` | Block 6: contact, pitch, approval, send once, read replies, book meetings, follow-ups, pipeline. |
 | `scripts/capture_fixtures.py` | Saves one real response per endpoint to `tests/fixtures/` (only missing ones). |
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
+| `scripts/instagram_sponsor_summary.py` | Runs block 3b on every cached Instagram post and prints what resolved. |
 
 ### Using the client
 ```python
@@ -141,16 +145,57 @@ The model only **extracts and drafts**. Scoring and decisions are plain code, so
 - **Post search country:** `actor.location.country` is stored as `"IND"` (`"IN"` and `"India"` return 0). Many company authors have no location, so OR it with `text [.] "India"`.
 - **Company search:** `basic_info.industries` values are a closed set: check with company autocomplete. Industries come back under `taxonomy.professional_network_industries` (+0.1 credits/result). Job search returns `company.basic_info.industries` at base price.
 - **Post IDs:** a company author's `actor.crustdata_entity_id` and the post's `mentions.company_ids` are Crustdata company IDs (checked: LanceSoft India 1266602, Sunalco Alloys 64995777). Request `mentions` in `fields`.
+- **Person endpoints (account check, 22 Nov):** `/person/search`, `/person/enrich`, `/person/identify` are enabled; `/person/contact/enrich` and all batch endpoints are **disabled**. `/person/enrich` has a business-email add-on (+1 credit) that might fill `Contact.business_email`: untested.
 - **Filter operators:** `=`, `in`, `=>` (not `>=`), `[.]` exact phrase, `(.)` all words (fuzzy).
 - **Costs:** company search 0.03/result, person search 0.03/result (+0.1 if you filter on title), social post 0.5/post, web search 1/query, web fetch 1/page, company identify 0.2/match, business email +1.
 
 ---
 
-## 5. Blocks open for teammates
+## 5. Blocks: status and how to use them
 
 Make your own file(s) so we don't collide. Add your settings as **your own top-level section** in `config.yaml`. Add tests in `tests/` (`unittest`, offline, fakes or fixtures; no live calls in tests).
 
-### Block 3b · Instagram sponsor extraction (suggested: Tanav)
+| Block | Status (22 Nov, 16:00) | Files |
+|---|---|---|
+| 1 · Skeleton, cache, ledger, restart safety | Done | `crustdata_client.py`, `agent_db.py`, `ledger.py`, `steps.py` |
+| 2 · Evidence ledger | Done | `evidence.py` |
+| 3 · Candidate pools | Done, run live | `candidates.py` |
+| 3b · Instagram sponsor extraction | Done, offline tests | `instagram_sponsors.py`, `src/` |
+| 4 · Brief and scoring | Done; ranking issue in block 3's notes | `brief.py`, `scoring.py` |
+| Host verification | Done, offline tests | `host_check.py` |
+| 6 · Outreach and replies | Built, offline tests; live team-inbox run not done | `outreach.py` |
+| End-to-end run (one command, brief → meetings) | **Open** | — |
+| Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
+| 5 · Back-test of the weights | **Open** | — |
+| 7 · Hard cases + kill test | **Open** (some covered by unit tests) | — |
+| README, diagram, business case, video | **Open** | — |
+
+### Block 3 · Candidate pools (done)
+- **File:** `candidates.py` (+ the `candidates` section in `config.yaml`).
+- **Use:** `candidates.find_candidates(brief, client, db, run_id, candidates.load_config(), instagram_sponsors.load_config(), call_model)` → `(candidates, failed_pools)`.
+  - One `Candidate` per Crustdata company ID, sorted by ID, with `found_by`, `domain`, `industries` and `signals`. Feed it straight to `scoring.rank`.
+  - `failed_pools` non-empty → a source kept failing: hold the run for a person (`needs_person`), don't treat it as "no candidates".
+  - Every fact is saved to the evidence ledger under `company:<id>`. Sponsor brands with no company record are saved as `cannot_verify` under `unresolved`.
+  - `call_model=None` skips the two post pools and lists them in `failed_pools`.
+- **Pools:**
+  - `hiring`: LinkedIn job postings for sponsorship/partnerships/brand roles in the country, last 30 days.
+  - `past_sponsor`: sponsors named in LinkedIn posts (`/social_post/search`) and in Instagram posts found by web search. Both go through block 3b's extraction (the model reads, code checks each name is in the text).
+    - Name → company: on LinkedIn, a name that matches exactly one company **the post tags, or the post's author**, takes that company's ID (`matched_by: "tagged in the post"`). Other names go through block 3b's `/company/identify` matching once per pool, not once per post.
+    - Roles in `not_sponsor_roles` (venue, media) don't count: they rarely pay.
+    - All posts by one organizer count as **one** sponsorship. Organizers repost the same sponsor list (speaker spotlights, countdowns); counting each post would inflate the signal.
+  - `host_past_sponsor`: the brief's `past_sponsors`, resolved to company IDs.
+  - `lookalike`: companies in the same industries as those past sponsors.
+  - `company_search`: companies in the profile's industries (`config.yaml`) with an office in the event city.
+- **Signals it fills:** `past_sponsorships`, `active_hiring`, `city_presence` (a job posting in the event city). Value = verified facts from distinct sources ÷ `signals_full_at` (max 1.0). No verified fact → no value (unknown, never 0).
+- **Not filled yet:** `budget`, `audience_fit`, `reachable_contact`. Scoring treats them as unknown, which lowers confidence but not the score.
+- **Live runs (22 Nov):**
+  - Bengaluru fintech summit, all pools: 158 candidates. The first run of the post pools cost ~37 credits (LinkedIn posts 20, identify 7, company search 2, web search/fetch ~8) and ~$0.59 of model calls; reruns hit the caches.
+  - Conference posts: 20 LinkedIn posts → 26 sponsor companies (Smart Meter Summit, ISODA United Summit, NABH, BMR...), 24 of them resolved by post tags. 4 Instagram posts → 1 (Hashout Technologies).
+  - Concert posts are noisy: 20 LinkedIn posts → 7 companies, some not Indian events (IMMA Dublin). 3 Instagram posts → 0. As expected from the post counts in section 4.
+  - 14 brands came out `cannot_verify` (e.g. LanceSoft: the post tags both LanceSoft India and LanceSoft, Inc., so we don't pick one).
+- **For block 4 (scoring):** a company with one strong known signal outranks one with several medium ones, because unknown weights are rescaled away. In the live run, companies with only `active_hiring` + `city_presence` (confidence 0.25) took the top spots above sourced past sponsors. Consider weighting the score by confidence, or shrinking low-confidence scores.
+
+### Block 3b · Instagram sponsor extraction (done)
 - **File:** `instagram_sponsors.py`
 - **In:** a parsed post (`instagram_parser.parse_post`). **Out:** a list of `Evidence` (one per sponsor) and resolved company IDs.
 - Model reads the caption → JSON `{event, event_date, city, sponsors: [{name, role}]}`.
@@ -158,6 +203,10 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Split "A and B" lines. Keep both dates: the post date (`taken_at`) and the event date written in the caption.
 - Resolve names with `/company/identify` (`{"names": [...]}`, max 25). No confident match → `cannot_verify`, "no company record matches this brand".
 - **Done when:** the SIDTM post above gives 9 sponsors with roles; ITC Limited and Trainocate resolve; small brands come out `cannot_verify`.
+- **Use:** `instagram_sponsors.process_post(post, fetched_at, db, run_id, client, instagram_sponsors.load_config(), extract.anthropic_caller(config))` → `{"evidence": [...], "leads": [...], ...}`.
+  - Matching (`src/match.py`) takes a company only when one clearly wins (`min_confidence` 0.8, `ambiguity_margin` 0.05); otherwise the name becomes a `Lead`, never a guess.
+  - Extractions are cached per caption, so reruns cost no model calls.
+  - Block 3 reuses `extract.extract`, `match.match_names` and `build_records` for LinkedIn posts too.
 
 ### Block 4 · Brief and scoring (done)
 - **Files:** `brief.py`, `scoring.py`, `config.yaml` (profiles + weights section).
@@ -189,42 +238,36 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
                           outreach.smtp_sender(cfg), model=outreach.anthropic_caller(cfg), host_check=host_evidence)
   ```
   `python outreach.py replies RUN brief.json` · `python outreach.py follow-ups RUN brief.json` · `python outreach.py status RUN`.
-  Outreach refuses to start until `host_check` is verified `Evidence` (`require_verified_host: false` to bypass while `host_check.py` is unbuilt).
+  Outreach refuses to start until `host_check` is verified `Evidence`.
+  - Contacts: `find_contact` picks the best title by the `contact_roles` order and skips `contact_exclude_titles`. `business_email` stays `None` (see section 4: `/person/enrich` with the email add-on is untested).
+  - The once-only send key is `email:{event}:{company_id}:{kind}`, so even a new run ID can't email the same company twice for the same event.
+  - **Still to do:** set the team Gmail env vars and run it live with a teammate playing the sponsor, to tick "done when".
 
-### Host verification (small)
-- **File:** `host_check.py`. `/company/identify` on the host's domain + web fetch of its site → `Evidence`. Not verified → outreach is blocked with the reason.
+### Host verification (done)
+- **File:** `host_check.py`. `host_check.check_host(brief, client, db, run_id)` → `Evidence`, saved under `host:<name>`.
+- Verified only if the host's own website, fetched live, names the host word for word. No website, a dead site or a site that doesn't name the host → `cannot_verify` with the reason, and `outreach.start_campaign` refuses to send.
+- If Crustdata knows the domain, its company ID rides along in the evidence value; it isn't required (small clubs often aren't in Crustdata).
+- Limit: it doesn't prove the host controls the site. A person still approves every email.
+
+### Open: end-to-end run
+- One command that runs a whole job: description → `brief.make_brief` → `host_check.check_host` → `candidates.find_candidates` → `scoring.rank` → host picks companies → `outreach.find_contact` → `outreach.start_campaign`. Then `python outreach.py replies|follow-ups|status`.
+- Wrap each stage in `steps.run_step` so a kill and restart skips finished stages (records go through `dataclasses.asdict`).
+- Hold the run for a person (`needs_person`) when `failed_pools` is non-empty or the host isn't verified.
+- Print the cost of the job from the ledger at the end: credits and model dollars. The business case needs it.
+
+### Open: the other three signals
+- `budget`: headcount, headcount growth and funding from `/company/search` (`headcount`, `funding` groups, +0.2 credits/result each). Negative growth (layoffs) should lower it (a hard case).
+- `audience_fit`: compare the brief's audience with who the company sells to. It must stay decided by code and sourced, or be left unknown.
+- `reachable_contact`: 1.0 when `outreach.find_contact` finds a sourced contact, unknown otherwise.
+
+### Open: back-test (block 5) and hard cases (block 7)
+- Back-test: past events from the LinkedIn posts (block 3 already finds their sponsors). Check that real sponsors rank above non-sponsors, using only signals from before each event's date where possible. Result = the README pass mark.
+- Hard cases still without a test: a company in the middle of layoffs, a contact who has left the company, a full kill-and-restart of the end-to-end run. Already covered: two names for one company (block 3 merge), an existing sponsor and category conflicts (scoring), logo-only posts (3b), a source timeout (client + `failed_pools`).
 
 ### README, diagram, business case (no code)
 - README must state: the job and who pays today, input, finished result, pass mark, every data source, where a person approves, the cost ledger, approaches we considered.
 - Diagram: components, data flow, where Crustdata/web/model calls, approvals, retries and the ledger sit. Excalidraw or Mermaid, link open to anyone.
 - Business case: buyer = event organizers/agencies running several medium events a year; price in ₹ (per-event fee + success fee) vs. measured cost per job from the ledger.
-
-### Block 3 · Candidate pools (done)
-- **File:** `candidates.py` (+ the `candidates` section in `config.yaml`).
-- **Use:** `candidates.find_candidates(brief, client, db, run_id, candidates.load_config(), instagram_sponsors.load_config(), call_model)` → `(candidates, failed_pools)`.
-  - One `Candidate` per Crustdata company ID, sorted by ID, with `found_by`, `domain`, `industries` and `signals`. Feed it straight to `scoring.rank`.
-  - `failed_pools` non-empty → a source kept failing: hold the run for a person (`needs_person`), don't treat it as "no candidates".
-  - Every fact is saved to the evidence ledger under `company:<id>`. Sponsor brands with no company record are saved as `cannot_verify` under `unresolved`.
-  - `call_model=None` skips the two post pools and lists them in `failed_pools`.
-- **Pools:**
-  - `hiring`: LinkedIn job postings for sponsorship/partnerships/brand roles in the country, last 30 days.
-  - `past_sponsor`: sponsors named in LinkedIn posts (`/social_post/search`) and in Instagram posts found by web search. Both go through block 3b's extraction (the model reads, code checks each name is in the text).
-    - Name → company: on LinkedIn, a name that matches exactly one company **the post tags, or the post's author**, takes that company's ID (`matched_by: "tagged in the post"`). Other names go through block 3b's `/company/identify` matching once per pool, not once per post.
-    - Roles in `not_sponsor_roles` (venue, media) don't count: they rarely pay.
-    - All posts by one organizer count as **one** sponsorship. Organizers repost the same sponsor list (speaker spotlights, countdowns); counting each post would inflate the signal.
-  - `host_past_sponsor`: the brief's `past_sponsors`, resolved to company IDs.
-  - `lookalike`: companies in the same industries as those past sponsors.
-  - `company_search`: companies in the profile's industries (`config.yaml`) with an office in the event city.
-- **Signals it fills:** `past_sponsorships`, `active_hiring`, `city_presence` (a job posting in the event city). Value = verified facts from distinct sources ÷ `signals_full_at` (max 1.0). No verified fact → no value (unknown, never 0).
-- **Not filled yet:** `budget`, `audience_fit`, `reachable_contact`. Scoring treats them as unknown, which lowers confidence but not the score.
-- **Live runs (22 Nov):**
-  - Bengaluru fintech summit, all pools: 158 candidates. The first run of the post pools cost ~37 credits (LinkedIn posts 20, identify 7, company search 2, web search/fetch ~8) and ~$0.59 of model calls; reruns hit the caches.
-  - Conference posts: 20 LinkedIn posts → 26 sponsor companies (Smart Meter Summit, ISODA United Summit, NABH, BMR...), 24 of them resolved by post tags. 4 Instagram posts → 1 (Hashout Technologies).
-  - Concert posts are noisy: 20 LinkedIn posts → 7 companies, some not Indian events (IMMA Dublin). 3 Instagram posts → 0. As expected from the post counts in section 4.
-  - 14 brands came out `cannot_verify` (e.g. LanceSoft: the post tags both LanceSoft India and LanceSoft, Inc., so we don't pick one).
-- **For block 4 (scoring):** a company with one strong known signal outranks one with several medium ones, because unknown weights are rescaled away. In the live run, companies with only `active_hiring` + `city_presence` (confidence 0.25) took the top spots above sourced past sponsors. Consider weighting the score by confidence, or shrinking low-confidence scores.
-
-**Done:** fixtures capture, block 2 (evidence ledger, `evidence.py`), block 3 (candidate pools, `candidates.py`).
 
 ---
 

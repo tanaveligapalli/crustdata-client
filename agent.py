@@ -12,6 +12,7 @@ where a person approves each answer or invite before it is sent.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, replace
@@ -140,6 +141,28 @@ def find_contact(agent: Agent, candidate: Candidate) -> Contact | None:
 
     data = run_step(agent.db, agent.run_id, f"contact:{candidate.company_id}", work)
     return contact_from_dict(data) if data else None
+
+
+def find_contacts(agent: Agent, candidate: Candidate) -> list[Contact]:
+    """Everyone at a selected company who could be pitched, best role first. The host picks one.
+
+    One /person/search per company (the same request as find_contact), saved as a step,
+    so showing the list again or after a restart costs nothing.
+    """
+    def work() -> list[dict]:
+        return [asdict(c) for c in outreach.find_contacts(agent.client, candidate, agent.config["outreach"])]
+
+    return [contact_from_dict(d) for d in run_step(agent.db, agent.run_id, f"contacts:{candidate.company_id}", work)]
+
+
+def pitched_contact(agent: Agent, company_id: int) -> Contact | None:
+    """The contact block 6 saved when this company's pitch was drafted. It stays fixed after that,
+    because the pitch shown for approval is addressed to them."""
+    outreach.ensure_tables(agent.db)
+    row = outreach.get_row(agent.db, agent.run_id, company_id)
+    if row is None or not row["contact_json"]:
+        return None
+    return contact_from_dict(json.loads(row["contact_json"]))
 
 
 def draft_pitches(agent: Agent, brief: Brief, host: Evidence,

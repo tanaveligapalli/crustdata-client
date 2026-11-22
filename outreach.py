@@ -156,10 +156,18 @@ def pipeline(db: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
 # -- contacts --------------------------------------------------------------------
 
 def find_contact(client, candidate: Candidate, config: dict[str, Any]) -> Contact | None:
-    """The best decision-maker at the company, by the role order in config. Business details only.
+    """The best decision-maker at the company, by the role order in config. Business details only."""
+    found = find_contacts(client, candidate, config)
+    return found[0] if found else None
 
-    Business emails need /person/contact/enrich, which is not on our plan, so
-    business_email stays None. During the event every email goes to the team inbox anyway.
+
+def find_contacts(client, candidate: Candidate, config: dict[str, Any]) -> list[Contact]:
+    """Everyone at the company who holds one of the config roles now, best role first.
+
+    The host picks one of them to pitch (app.py). Same request as find_contact, so the
+    list costs nothing extra. Business details only: business emails need
+    /person/contact/enrich, which is not on our plan, so business_email stays None.
+    During the event every email goes to the team inbox anyway.
     """
     roles = config["contact_roles"]
     body = {
@@ -175,8 +183,8 @@ def find_contact(client, candidate: Candidate, config: dict[str, Any]) -> Contac
         "limit": 10,
     }
     response = client.call("/person/search", body)
-    best, best_rank, best_job = None, len(roles), None
-    for person in (response.data or {}).get("profiles", []):
+    ranked = []
+    for order, person in enumerate((response.data or {}).get("profiles", [])):
         job = job_here(person, candidate.company_id)
         if job is None:
             continue                       # left the company, or their current job is elsewhere
@@ -184,24 +192,26 @@ def find_contact(client, candidate: Candidate, config: dict[str, Any]) -> Contac
         if any(has_words(title, word) for word in config.get("contact_exclude_titles", [])):
             continue                       # "Private Equity Partnerships" is not brand partnerships
         rank = next((i for i, role in enumerate(roles) if has_words(title, role)), None)
-        if rank is not None and rank < best_rank:
-            best, best_rank, best_job = person, rank, job
-    if best is None:
-        return None
+        if rank is not None:
+            ranked.append((rank, order, person, job))
+    ranked.sort(key=lambda r: (r[0], r[1]))   # best role first; ties keep the search order
 
-    name, title, start = best["basic_profile"]["name"], best_job["title"], best_job.get("start_date")
-    url = ((best.get("social_handles") or {}).get("professional_network_identifier") or {}).get("profile_url", "")
-    evidence = Evidence(
-        claim=f"{name} is {title} at {candidate.name}",
-        value=title,
-        source_url="crustdata:/person/search",
-        quote=f"experience.employment_details.current[].title = {title}",
-        record_date=start[:10] if start else None,
-        retrieved_at=response.retrieved_at,
-        source_type="crustdata:/person/search",
-    )
-    return Contact(company_id=candidate.company_id, name=name, title=title,
-                   profile_url=url, business_email=None, evidence=[evidence])
+    contacts = []
+    for _rank, _order, person, job in ranked:
+        name, title, start = person["basic_profile"]["name"], job["title"], job.get("start_date")
+        url = ((person.get("social_handles") or {}).get("professional_network_identifier") or {}).get("profile_url", "")
+        evidence = Evidence(
+            claim=f"{name} is {title} at {candidate.name}",
+            value=title,
+            source_url="crustdata:/person/search",
+            quote=f"experience.employment_details.current[].title = {title}",
+            record_date=start[:10] if start else None,
+            retrieved_at=response.retrieved_at,
+            source_type="crustdata:/person/search",
+        )
+        contacts.append(Contact(company_id=candidate.company_id, name=name, title=title,
+                                profile_url=url, business_email=None, evidence=[evidence]))
+    return contacts
 
 
 def job_here(person: dict[str, Any], company_id: int) -> dict[str, Any] | None:

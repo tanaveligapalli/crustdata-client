@@ -274,6 +274,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   `python outreach.py replies RUN brief.json` · `python outreach.py follow-ups RUN brief.json` · `python outreach.py status RUN`.
   Outreach refuses to start until `host_check` is verified `Evidence`.
   - Contacts: `find_contact` picks the best title by the `contact_roles` order and skips `contact_exclude_titles`. `business_email` stays `None` (see section 4: `/person/enrich` with the email add-on is untested).
+  - `find_contacts` returns everyone who qualifies, best role first (same request, no extra credits); `find_contact` is its first entry. The host picks one person per company on the screen, and `start_campaign` saves that person with the company's pitch (`outreach.contact_json`): from then on the pitch, replies and pipeline use them.
   - The once-only send key is `email:{event}:{company_id}:{kind}`, so even a new run ID can't email the same company twice for the same event.
   - Every drafted pitch is stored (`pitch_drafts`) and reused: the text shown for approval, after a reload or after a crash between approval and sending, is the text that is sent. Before this, a fresh model redraft could go out without approval.
   - **Live check (22 Nov):** `find_contact` works (Navi → "Head - Strategic Partnerships & Fund Raise", Diageo → "Brand Manager Guinness"). The Navi pick is a fundraising title: consider adding "fund" to `contact_exclude_titles`.
@@ -288,8 +289,8 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 
 ### Block 8 · End-to-end run and frontend (done)
 - **Run it:** `pip install -r requirements.txt`, set `CRUSTDATA_API_KEY` and `ANTHROPIC_API_KEY`, then `streamlit run app.py`. Pick an example from `demo/` or type a description, then Run.
-- **Screen (`app.py`):** brief → host check → ranked sponsors (score, confidence, why, how found) with each company's evidence → tick companies → contacts and pitches → read and approve each pitch → send → pipeline → cost of the job. It only shows things and collects choices; `agent.py` does the work.
-- **Stages (`agent.py`):** `make_brief`, `check_host`, `find_candidates` (ranked), `find_contact`, `draft_pitches`, `send_approved`, `pipeline`, `cost`.
+- **Screen (`app.py`):** brief → host check → ranked sponsors (score, confidence, why, how found) with each company's evidence → tick companies → "Find people": each company's qualifying people (title, in role since, profile link), pick one per company or "no one" (pitch goes to the sponsorship team) → draft → read and approve each pitch → send → pipeline → cost of the job. It only shows things and collects choices; `agent.py` does the work.
+- **Stages (`agent.py`):** `make_brief`, `check_host`, `find_candidates` (ranked), `find_contacts` (the list the host picks from, one `/person/search` per company, saved as a step), `pitched_contact` (the person saved with a company's pitch), `draft_pitches`, `send_approved`, `pipeline`, `cost`. `find_contact` is kept for callers that want just the best person.
   - The run ID is a hash of the description, and each paid stage is a `steps.run_step`. The same description after a kill replays finished stages from the database, so nothing is paid for or sent twice.
   - **Offline demo:** the "Replay from cache" switch opens the client with `offline=True` and blocks model calls (`agent.NotCached`). A description that ran online once replays fully with no API key.
   - A failed source shows a warning and needs a person to tick "reviewed" before continuing. An unverified host blocks pitches.

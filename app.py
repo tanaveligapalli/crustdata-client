@@ -17,7 +17,7 @@ import agent
 import outreach
 import scoring
 from brief import BriefIncomplete, ExtractionFailed
-from crustdata_client import BudgetExceeded, NotInCache
+from crustdata_client import BudgetExceeded, NotInCache, SourceUnavailable
 
 EXAMPLES = Path(__file__).resolve().parent / "demo"
 SIGNAL_LABELS = {"past_sponsorships": "past sponsor", "alumni": "alumni", "csr": "CSR",
@@ -148,26 +148,60 @@ if excluded:
             st.write(f"{c.name}: {c.excluded_reason}")
 
 
-# -- pitches ------------------------------------------------------------------
-
-st.subheader("Pitches")
-if st.button(f"Find contacts and draft {len(picked)} pitch(es)", disabled=not picked or offline):
-    st.session_state.pitch_ids = [c.company_id for c in picked]
-    with st.spinner("Finding decision-makers and drafting"):
-        selected = [(c, agent.find_contact(job, c)) for c in picked]
-        try:
-            agent.draft_pitches(job, brief, host, selected)
-        except outreach.OutreachBlocked as e:
-            stop_with(str(e))
+# -- contacts -----------------------------------------------------------------
 
 by_id = {c.company_id: c for c in ranked}
 progress = agent.pipeline(job)
 state = {r["company_id"]: r["state"] for r in progress}
-pitch_ids = st.session_state.get("pitch_ids") or list(state)   # after a reload: this run's earlier pitches
-selected = [(by_id[i], agent.find_contact(job, by_id[i])) for i in pitch_ids if i in by_id]
+
+st.subheader("Contacts")
+new_picks = [c for c in picked if c.company_id not in state]
+if st.button(f"Find people at {len(new_picks)} compan{'y' if len(new_picks) == 1 else 'ies'}",
+             disabled=not new_picks or offline):
+    st.session_state.contact_ids = [c.company_id for c in new_picks]
+
+# Companies whose people we've listed but that have no pitch yet: the host picks one person each.
+contact_ids = [i for i in st.session_state.get("contact_ids", []) if i in by_id and i not in state]
+chosen = {}
+if contact_ids:
+    try:
+        with st.spinner("Finding people at each company"):
+            people = {i: agent.find_contacts(job, by_id[i]) for i in contact_ids}
+    except (NotInCache, BudgetExceeded, SourceUnavailable) as e:
+        stop_with(f"Couldn't look up people: {e}. A person should check before going on.")
+    st.caption("People who hold one of the sponsorship, partnerships, brand or marketing roles at the "
+               "company now, best role first. Pick one per company: the pitch is addressed to them.")
+    for i in contact_ids:
+        found = people[i]
+        with st.container(border=True):
+            st.markdown(f"**{by_id[i].name}** · {len(found)} found")
+            chosen[i] = st.radio(
+                by_id[i].name, found + [None], key=f"contact-{i}", label_visibility="collapsed",
+                format_func=lambda p: f"{p.name}, {p.title}" if p else "No one here: address the sponsorship team",
+                captions=[(f"In this role since {p.evidence[0].record_date}" if p.evidence and p.evidence[0].record_date
+                           else "Start date not listed")
+                          + (f" · [profile]({p.profile_url})" if p.profile_url else "") for p in found]
+                         + ["The pitch goes to the company's sponsorship team"])
+elif not state:
+    st.caption("Tick companies above, then find people. People are looked up only for the companies you pick.")
+
+
+# -- pitches ------------------------------------------------------------------
+
+st.subheader("Pitches")
+if chosen and st.button(f"Draft {len(chosen)} pitch(es) for these contacts", disabled=offline):
+    with st.spinner("Drafting"):
+        try:
+            agent.draft_pitches(job, brief, host, [(by_id[i], person) for i, person in chosen.items()])
+        except outreach.OutreachBlocked as e:
+            stop_with(str(e))
+    st.rerun()
+
+# Every company with a pitch in this run, with the contact saved when its pitch was drafted.
+selected = [(by_id[i], agent.pitched_contact(job, i)) for i in state if i in by_id]
 drafts = [d for c, _ in selected if (d := outreach.saved_pitch(job.db, job.run_id, c, brief))]
 if not drafts:
-    st.caption("Tick companies above, then draft. Contacts are looked up only for the companies you pick.")
+    st.caption("Pick a contact for each company above, then draft.")
 
 approved = set()
 for d in drafts:

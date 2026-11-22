@@ -134,6 +134,7 @@ The model only **extracts and drafts**. Scoring and decisions are plain code, so
 ## 4. What we learned about the data (tested on our account)
 
 - **API key:** env var `CRUSTDATA_API_KEY` (your own key from app.crustdata.com → API Keys). Tests don't need it.
+- **Python env:** on Anaconda, model calls crash in the SDK's HTTP layer (`Decompressor.decompress() got an unexpected keyword argument 'output_buffer_limit'`: the base env's old `brotlicffi`). Use a fresh venv: `python3 -m venv .venv && .venv/bin/pip install anthropic pyyaml` (`.venv/` is gitignored).
 - **Rate limits (per minute):** company/person identify **5**, web search/fetch 10, enrich 15, searches 30. The client enforces them. Batch company identify: up to 25 names per call.
 - **LinkedIn post index is ~2 months behind** (newest post seen: 17 Sep 2026). Use it for **history**, not recent news.
   - India 2026: "conference + sponsor" 1,020 posts · "summit + partner" 5,030 · "concert + sponsor" 41 · "music festival + partner" 16. Concerts need web search.
@@ -167,8 +168,8 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | 6 · Outreach and replies | Contacts live; approval fix; **email not run live: no Gmail env vars yet** | `outreach.py` |
 | End-to-end run (one command, brief → meetings) | **Open** | — |
 | Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
-| 5 · Back-test | Built, offline tests; **needs a live run with post data spread over months** | `backtest.py`, `scripts/backtest.py` |
-| 7 · Hard cases + kill test | **Open** (some covered by unit tests) | — |
+| 5 · Back-test | Built; trial run (55 posts) = **cannot verify**: no repeat sponsors in the sample | `backtest.py`, `scripts/backtest.py` |
+| 7 · Hard cases + kill test | Partly: "contact who has left" now tested; layoffs needs `budget`; kill test needs the end-to-end run | — |
 | README, diagram, business case, video | **Open** | — |
 
 ### Block 3 · Candidate pools (done)
@@ -270,17 +271,27 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - `audience_fit`: compare the brief's audience with who the company sells to. It must stay decided by code and sourced, or be left unknown.
 - `reachable_contact`: 1.0 when `outreach.find_contact` finds a sourced contact, unknown otherwise.
 
-### Block 5 · Back-test (built; result still open)
-- **Run:** `python scripts/backtest.py RUN_ID [RUN_ID ...] [--profile conference] [--out reports/backtest.md]`. It reads past-sponsor facts that `candidates.find_candidates` saved to the evidence ledger (post pools on). No API or model calls.
-- **How:** sponsor facts are grouped into past events. For each event with 2+ resolved sponsors, every company in the data is a candidate, signals are rebuilt with block 3's `merge` from facts dated **before the event's cutoff** (the earlier of its stated date and its first post), and `scoring.rank` orders them. Measured: AUC (how often a real sponsor beats a non-sponsor; ties count half; 50% = chance) and recall in the top k.
-  - Only non-sponsors with an earlier sponsorship are compared: one with no history can't outrank anyone, so it would only restate how many sponsors have history. An event with no such non-sponsor isn't tested.
-- **Leakage guard:** a fact about the same event under another name ("BRICS" vs "BRICS Conference 2026"), or with overlapping event dates, never counts as history. Names are compared without generic words ("summit", "annual"), ordinals and years; a different year is a different edition, so last year's edition does count. Facts with no distinctive name and no date are left out.
-- **What it tests:** only `past_sponsorships` can be known at a past date (job facts are from the last 30 days; city facts belong to another brief; the other signals aren't built). So it answers "do past sponsorships predict the next one?", **not** how to weight signals (including block 3's confidence-weighting question).
-- **"Cannot verify" floors** (`backtest` in `config.yaml`, set before any result): fewer than 5 testable events, or under 20% of sponsor/non-sponsor pairs decided, prints "cannot verify" and what's missing instead of a number.
-- **Still to do:** a live run. Whoever has `agent.sqlite3` from the 22 Nov runs can try it free now (`python scripts/backtest.py x` lists the run IDs). One block 3 run (20 recent posts, a few weeks) will mostly come out "cannot verify": sponsors need a sponsorship dated before their event. Posts spread over the year are needed (more credits and model calls; the post search has no tested upper date bound yet).
+### Block 5 · Back-test (built; first result: cannot verify)
+- **Run:** `python scripts/backtest.py RUN_ID [RUN_ID ...] [--profile conference] [--out reports/backtest.md]` reads past-sponsor facts already in the evidence ledger (no API or model calls). `--collect 2025-11:2026-09 --posts-per-month N --credit-limit C` first collects LinkedIn sponsor posts month by month with block 3's own post pool (`linkedin_sponsor_pool(..., until=)`), one restart-safe step per month, into the run `backtest-<profile>`.
+- **How:** sponsor facts are grouped into past events. For each event with 2+ resolved sponsors, the candidates are its sponsors plus **the sponsors of other events at or after its cutoff**; signals are rebuilt with block 3's `merge` from facts dated **before the cutoff** (the earlier of its stated date and its first post); `scoring.rank` orders them. Measured: AUC over every sponsor/non-sponsor pair (ties half, 50% = chance) and recall in the top k (tied groups count by their share of the places).
+  - Why that pool: a company is in the data only because a post names it. One whose only post is older than the event would have "history" just for being there, while real sponsors only have history if they sponsored twice. A trial gave "AUC 0%" that way; it was the method, not the data. With this pool both sides need a repeat, so no repeats = all ties = 50%.
+  - Limit: it compares repeat sponsors with companies that sponsor other, later events, not with companies that never sponsor (that needs a timeline-free list, e.g. company search, at extra cost).
+- **Leakage guard:** a fact about the same event under another name ("BRICS" vs "BRICS Conference 2026"), or with overlapping event dates, never counts as history. Names are compared without generic words ("summit", "annual"), ordinals and years; a different year is a different edition, so last year's edition does count.
+- **What it tests:** only `past_sponsorships` can be known at a past date, so it answers "do past sponsorships predict the next one?", **not** how to weight signals.
+- **"Cannot verify" floors** (`backtest` in `config.yaml`): fewer than 5 testable events, under 20% of pairs decided, or fewer than 10 real sponsors with an earlier sponsorship (added after the trial below).
+- **Trial (22 Nov, conference, 5 posts/month Nov 2025-Sep 2026, 55 posts, 43.7 credits + $0.73):** 19 events, 9 testable, 110 real sponsors, **0** with an earlier sponsorship in the sample -> **cannot verify** (`reports/backtest.md`). 5 posts/month is ~0.5% of the ~1,000 matching posts a month, so repeats are invisible. A pass mark needs far denser collection (cost scales with posts: ~0.8 credits and ~$0.013 per post).
+
+### Review of blocks 1-7 (22 Nov): fixed, and open decisions
+- **Fixed** (each with a test that fails on the old code): back-test pool and AUC (above) · `merge` kept a job posting's empty industries, so host-excluded categories didn't apply · `find_contact` used the headline title / first job, so it could pick someone who left or whose title is at another company; titles now match whole words (intern, trainee excluded; "CMO" isn't "CMOS") · a reply re-read after a crash could be labelled differently and send a second email · `host_check` replaced a "no date" reason with "does not mention the host" · `quote_on_page` matched inside words ("Meta" in "metadata") · cities with two names (Bangalore/Bengaluru, Gurgaon/Gurugram...) never matched · hiring keyword "partnerships" (71 of 106 postings, mostly business development) dropped.
+- **Open decisions (team):**
+  - Ranking: one job posting in the city (score ~0.6, confidence 0.25) still outranks a sourced past sponsor (0.5). Option: order by score × confidence (evidence first), keep displaying score and confidence. Not changed: it's a product call.
+  - The host's own past sponsors (brief) get no signal, so they rank below every scored company. Option: a `past_sponsorships` fact sourced to the brief (`host_brief`).
+  - Host check proves the site names the host, not that the host controls the site (someone could name a real company and its site). Option: a one-time code on the site; or state the limit in the README.
+  - Accepted trade-off, not a bug: opt-out detection is deliberately broad ("opt out of the gold tier" counts as opt-out).
+  - Meeting slots in `config.yaml` are fixed dates (24-25 Nov); past slots aren't skipped. Update them before any later demo.
 
 ### Open: hard cases (block 7)
-- Hard cases still without a test: a company in the middle of layoffs, a contact who has left the company, a full kill-and-restart of the end-to-end run. Already covered: two names for one company (block 3 merge), an existing sponsor and category conflicts (scoring), logo-only posts (3b), a source timeout (client + `failed_pools`).
+- Still without a test: a company in the middle of layoffs (needs the `budget` signal first), a full kill-and-restart of the end-to-end run (needs the end-to-end run). Covered: a contact who has left or whose matching title is at another company (`outreach.find_contact`, `tests/test_outreach.py::ContactEdgeCases`), two names for one company (block 3 merge), an existing sponsor and category conflicts (scoring), logo-only posts (3b), a source timeout (client + `failed_pools`), a reply re-read after a crash (labelled once, `run_step`).
 
 ### README, diagram, business case (no code)
 - README must state: the job and who pays today, input, finished result, pass mark, every data source, where a person approves, the cost ledger, approaches we considered.

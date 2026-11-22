@@ -148,7 +148,7 @@ def _cell(v) -> str:
 
 def write_reports(rows: list[dict], search_log: list[dict]) -> str:
     REPORTS.mkdir(exist_ok=True)
-    with open(REPORTS / "instagram_survey.csv", "w", newline="") as f:
+    with open(REPORTS / "instagram_survey.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
         w.writerows(rows)

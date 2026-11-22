@@ -41,6 +41,23 @@ CREATE TABLE IF NOT EXISTS actions (
     result_json TEXT,
     updated_at  TEXT NOT NULL
 );
+
+-- The evidence ledger (evidence.py): every fact, verified or not, with its source.
+CREATE TABLE IF NOT EXISTS evidence (
+    run_id       TEXT NOT NULL,
+    subject      TEXT NOT NULL,   -- what the fact is about: "company:631394", "host", "event"
+    claim        TEXT NOT NULL,
+    value_json   TEXT NOT NULL,
+    source_url   TEXT NOT NULL,
+    quote        TEXT NOT NULL,
+    record_date  TEXT,
+    retrieved_at TEXT NOT NULL,
+    source_type  TEXT NOT NULL,
+    status       TEXT NOT NULL,   -- verified, cannot_verify
+    missing      TEXT,
+    saved_at     TEXT NOT NULL,
+    PRIMARY KEY (run_id, subject, claim, source_url)
+);
 """
 
 

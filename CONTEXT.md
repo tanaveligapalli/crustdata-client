@@ -58,7 +58,8 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `crustdata_client.py` | The one Crustdata client. SQLite cache, per-endpoint rate limits, retries, credit limit, ledger rows. |
 | `instagram_parser.py` | Parses a fetched Instagram post page: handle, caption, `taken_at`, comment count, edit check. |
 | `records.py` | **The shared shapes: `Evidence`, `Brief`, `Tier`, `Signal`, `Candidate`, `Contact`, `OUTREACH_STATES`.** Code against these. |
-| `agent_db.py` | Our SQLite tables: ledger, steps, actions. |
+| `evidence.py` | **The evidence ledger.** Builds `Evidence` from API fields, fetched pages and snippets, and saves/loads every fact (verified or not) per run. |
+| `agent_db.py` | Our SQLite tables: ledger, steps, actions, evidence. |
 | `ledger.py` | `record(...)` a call, `credits_spent(db, run_id)`. |
 | `steps.py` | `run_step` (a finished step never re-runs) and `do_once` (an action happens at most once). |
 | `brief.py` | Block 4: host's description → `Brief`. Model extracts, code checks every value against the text. |
@@ -92,6 +93,30 @@ candidates = run_step(db, run_id, "find_candidates", lambda: find_candidates(...
 do_once(db, run_id, f"email:{company_id}:intro", "email", lambda: send_email(...))
 ```
 `do_once` raises `ActionNeedsCheck` if an action started but the process died before it finished: show it to a person, don't resend.
+
+### Recording facts (evidence ledger)
+Never build an `Evidence` by hand for a fact you found: use `evidence.py`, which applies the rules.
+```python
+import evidence
+
+r = client.call("/job/search", body)
+job = r.data["job_listings"][0]
+fact = evidence.from_api("/job/search", r, "job_listings[0].job_details.title", job["job_details"]["title"],
+                         claim="Acme is hiring a Head of Partnerships",
+                         record_date=job["metadata"]["date_added"], source_url=job["job_details"]["url"])
+
+# A page: verified only if the quote is on the fetched page and there is a record date.
+fact = evidence.from_web_fetch(result, r.retrieved_at, quote="Gold Partner: Acme",
+                               claim="Acme was Gold Partner at X 2026", value="Gold Partner",
+                               record_date="2026-09-04")
+# Instagram: from_page(url, post["caption"], quote, ..., evidence.unix_to_iso(post["taken_at"]), ..., "instagram")
+# A search snippet is only a lead: evidence.from_snippet(...) is always cannot_verify.
+# Nothing settled it: evidence.cannot_verify(claim, "what is missing").
+
+evidence.save(db, run_id, f"company:{company_id}", fact)   # also "host", "event"
+evidence.load(db, run_id, f"company:{company_id}")         # every fact, verified or not
+```
+A record date must be ISO (`2026-09-04` or a full date-time); "2w" or no date → `cannot_verify`.
 
 ### Model calls
 Use the Anthropic Python SDK. Put the model ID in `config.yaml` (e.g. `claude-sonnet-5-5`). Record every call:
@@ -160,7 +185,8 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Diagram: components, data flow, where Crustdata/web/model calls, approvals, retries and the ledger sit. Excalidraw or Mermaid, link open to anyone.
 - Business case: buyer = event organizers/agencies running several medium events a year; price in ₹ (per-event fee + success fee) vs. measured cost per job from the ledger.
 
-**Taken by us (don't start):** fixtures capture, block 2 (evidence ledger), block 3 (candidate pools).
+**Done:** fixtures capture, block 2 (evidence ledger, `evidence.py`).
+**Taken by us (don't start):** block 3 (candidate pools).
 
 ---
 

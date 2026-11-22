@@ -7,6 +7,7 @@ Use dataclasses.asdict(record) to turn any record into JSON-ready dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 # Outreach states, in the order a deal usually moves (block 6).
@@ -41,10 +42,23 @@ class Evidence:
     missing: str | None = None  # for cannot_verify: what is missing
 
     def __post_init__(self):
-        # Rule: a record with no date can't verify a fact.
-        if self.record_date is None and self.status == "verified":
+        # Rule: a record with no date (or a date we can't read) can't verify a fact.
+        if self.status != "verified":
+            return
+        if self.record_date is None:
             self.status = "cannot_verify"
             self.missing = self.missing or "the record has no date"
+        elif not _is_iso_date(self.record_date):
+            self.status = "cannot_verify"
+            self.missing = self.missing or f"the record date {self.record_date!r} is not an ISO date"
+
+
+def _is_iso_date(text: str) -> bool:
+    try:
+        datetime.fromisoformat(text)
+        return True
+    except (TypeError, ValueError):
+        return False
 
 
 @dataclass

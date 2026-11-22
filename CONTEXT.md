@@ -79,6 +79,7 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `scripts/instagram_sponsor_summary.py` | Runs block 3b on every cached Instagram post and prints what resolved. |
 | `agent.py` | Block 8: the whole job, stage by stage (`run_step` each), replayable offline. Also the `outbox/` sender when Gmail isn't set up. |
 | `company_signals.py` | Company size, growth, funding, listing, followers, alumni and CSR signals, each from a sourced fact. |
+| `web/server.py`, `web/static/` | Block 8: the designed web screen over `agent.py` (`python web/server.py [--debug] [--offline]`). Debug weights only reach the browser from a `--debug` server. |
 | `app.py`, `.streamlit/config.toml`, `demo/` | Block 8: the Streamlit screen (`streamlit run app.py`), its minimal theme, and the demo event descriptions. |
 | `backtest.py`, `scripts/backtest.py` | Block 5: do past events' real sponsors rank above non-sponsors, using only facts from before each event? |
 
@@ -175,7 +176,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | 4 · Brief and scoring | Done, live (two wordings → same brief and ranking); **2 open issues below** | `brief.py`, `scoring.py` |
 | Host verification | Done, live (crash on a domain-less match fixed) | `host_check.py` |
 | 6 · Outreach and replies | Contacts live; approval fix; **email not run live: no Gmail env vars yet** | `outreach.py` |
-| 8 · End-to-end run and frontend | Done, live through sending (to `outbox/`); offline replay works | `agent.py`, `app.py` |
+| 8 · End-to-end run and frontend | Done, live through sending (to `outbox/`); offline replay works. Web screen added (`web/`), tested offline and in headless Chrome on sample data, not yet on a live run | `agent.py`, `app.py`, `web/` |
 | Company signals, host-type weights, evidence-first ranking | Done, live on 3 demo events (company, university, NGO hosts) | `company_signals.py`, `scoring.py`, `brief.py` |
 | Signals `audience_fit`, `reachable_contact` | **Open** (removed from the weights until built) | — |
 | 5 · Back-test | Built; trial run (55 posts) = **cannot verify**: no repeat sponsors in the sample | `backtest.py`, `scripts/backtest.py` |

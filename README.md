@@ -25,6 +25,21 @@ and the pipeline.
 - **Replies:** `python outreach.py replies RUN_ID brief.json` (the screen offers `brief.json`).
 - **Tests:** `python -m unittest discover -s tests` (offline, no keys needed).
 
+### The web screen (`web/`)
+
+```
+python web/server.py            # http://127.0.0.1:8000, for hosts
+python web/server.py --debug    # adds a Debug toggle: weights, scores, costs
+python web/server.py --offline  # replay events that already ran online; no API calls
+```
+
+The same job as `app.py` with a designed page: describe the event, see the brief and host
+check, ranked sponsors with company logos and every sourced fact, pick companies, approve each
+pitch, send, and follow the pipeline. Weights, scores, confidence and costs are only sent to the
+browser by a `--debug` server, so start it without `--debug` for anyone who isn't an operator.
+It listens on this machine only; each new search is capped at 60 credits. Logos cost 0.03
+credits per company shown (once; they're cached).
+
 ## The job and who pays for it today
 
 An event host needs sponsors. Someone has to find companies likely to sponsor this kind of

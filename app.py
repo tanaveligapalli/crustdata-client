@@ -63,6 +63,26 @@ def rupees(amount: int) -> str:
     return f"₹{amount / 100_000:g} lakh" if amount >= 100_000 else f"₹{amount:,}"
 
 
+MISSING = {
+    "event_name": "the event's name",
+    "profile": "what kind of event it is, in words like conference, summit, hackathon, concert or music festival",
+    "audience": "who will attend",
+    "host_name": "who is hosting it",
+    "host_type": "what kind of organization the host is: a university, an NGO, a company or a club/community",
+}
+
+
+def missing_message(error: BriefIncomplete) -> str:
+    """Say what to add in plain words, and what we read instead if we read something."""
+    lines = ["Please add to the description:"]
+    for field in error.missing:
+        lines.append(f"- {MISSING.get(field, field.replace('_', ' '))}")
+        for d in error.dropped:
+            if d["field"] == field:
+                lines.append(f"  (we read \"{d['value']}\", which matches none of these, or more than one)")
+    return "\n".join(lines)
+
+
 def stop_with(message: str) -> None:
     st.info(message)
     st.stop()
@@ -78,7 +98,7 @@ try:
     with st.spinner("Finding sponsors: job posts, past sponsorships, company search (a few minutes the first time)"):
         ranked, failed = agent.find_candidates(job, brief)
 except BriefIncomplete as e:
-    stop_with(f"Please add to the description: {', '.join(e.missing).replace('_', ' ')}.")
+    stop_with(missing_message(e))
 except ExtractionFailed:
     stop_with("Couldn't read the description. Try rewording it.")
 except (agent.NotCached, NotInCache):

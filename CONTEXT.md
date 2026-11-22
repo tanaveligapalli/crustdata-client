@@ -64,6 +64,7 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `steps.py` | `run_step` (a finished step never re-runs) and `do_once` (an action happens at most once). |
 | `brief.py` | Block 4: host's description → `Brief`. Model extracts, code checks every value against the text. |
 | `scoring.py` | Block 4: `score` / `rank` candidates for a `Brief`. Pure code: hard filters, weights from `config.yaml`. |
+| `candidates.py` | Block 3: `Brief` → deduplicated `Candidate` list from five pools, with sourced signals. |
 | `scripts/capture_fixtures.py` | Saves one real response per endpoint to `tests/fixtures/` (only missing ones). |
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
 
@@ -136,6 +137,10 @@ The model only **extracts and drafts**. Scoring and decisions are plain code, so
 - **Web search** finds Indian event sponsor posts, but snippets have no dates and many URLs are Google redirects. Fetch the page.
 - **Instagram:** a plain logged-out fetch works (no login wall). The caption is in the page's meta/JSON, `taken_at` is the exact post time. Example: `https://www.instagram.com/p/Dc3Hy3qjeRC/` (SIDTM Pune Hackathon, 4 Sep 2026: Trainocate Networks India Pvt Ltd, ITC Limited, The 3D Crafted, Nasher Miles, Trend Tree, WOW Momo, KLAW, Campus Times Pune, Maharashtra Times). Small brands probably won't resolve to a company → "cannot verify".
 - **Plan gates:** live social search, all batch endpoints, `years_of_experience`, some person fields are off. Naming a gated field in `fields` fails the whole call.
+- **Job search:** many postings come from Indeed with `crustdata_company_id = null`. Filter `job_details.source = "professional_network"` (LinkedIn) to get company IDs. India, last 30 days, sponsorship/partnerships/brand roles on LinkedIn: ~90 postings (22 Nov).
+- **Post search country:** `actor.location.country` is stored as `"IND"` (`"IN"` and `"India"` return 0). Many company authors have no location, so OR it with `text [.] "India"`.
+- **Company search:** `basic_info.industries` values are a closed set: check with company autocomplete. Industries come back under `taxonomy.professional_network_industries` (+0.1 credits/result). Job search returns `company.basic_info.industries` at base price.
+- **Filter operators:** `=`, `in`, `=>` (not `>=`), `[.]` exact phrase, `(.)` all words (fuzzy).
 - **Costs:** company search 0.03/result, person search 0.03/result (+0.1 if you filter on title), social post 0.5/post, web search 1/query, web fetch 1/page, company identify 0.2/match, business email +1.
 
 ---
@@ -185,8 +190,24 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Diagram: components, data flow, where Crustdata/web/model calls, approvals, retries and the ledger sit. Excalidraw or Mermaid, link open to anyone.
 - Business case: buyer = event organizers/agencies running several medium events a year; price in ₹ (per-event fee + success fee) vs. measured cost per job from the ledger.
 
-**Done:** fixtures capture, block 2 (evidence ledger, `evidence.py`).
-**Taken by us (don't start):** block 3 (candidate pools).
+### Block 3 · Candidate pools (done, except a live run of the post pools)
+- **File:** `candidates.py` (+ the `candidates` section in `config.yaml`).
+- **Use:** `candidates.find_candidates(brief, client, db, run_id, candidates.load_config(), instagram_sponsors.load_config(), call_model)` → `(candidates, failed_pools)`.
+  - One `Candidate` per Crustdata company ID, sorted by ID, with `found_by`, `domain`, `industries` and `signals`. Feed it straight to `scoring.rank`.
+  - `failed_pools` non-empty → a source kept failing: hold the run for a person (`needs_person`), don't treat it as "no candidates".
+  - Every fact is saved to the evidence ledger under `company:<id>`. Sponsor brands with no company record are saved as `cannot_verify` under `unresolved`.
+  - `call_model=None` skips the two post pools and lists them in `failed_pools`.
+- **Pools:**
+  - `hiring`: LinkedIn job postings for sponsorship/partnerships/brand roles in the country, last 30 days.
+  - `past_sponsor`: sponsors named in LinkedIn posts (`/social_post/search`) and in Instagram posts found by web search. Both go through block 3b's extraction and name matching.
+  - `host_past_sponsor`: the brief's `past_sponsors`, resolved to company IDs.
+  - `lookalike`: companies in the same industries as those past sponsors.
+  - `company_search`: companies in the profile's industries (`config.yaml`) with an office in the event city.
+- **Signals it fills:** `past_sponsorships`, `active_hiring`, `city_presence` (a job posting in the event city). Value = verified facts from distinct sources ÷ `signals_full_at` (max 1.0). No verified fact → no value (unknown, never 0).
+- **Not filled yet:** `budget`, `audience_fit`, `reachable_contact`. Scoring treats them as unknown, which lowers confidence but not the score.
+- **Live run (22 Nov, Bengaluru fintech summit, no model):** 132 candidates for 9.5 credits. The post pools are tested offline only: the Anthropic SDK and key aren't set up on this machine yet.
+
+**Done:** fixtures capture, block 2 (evidence ledger, `evidence.py`), block 3 (candidate pools, `candidates.py`).
 
 ---
 

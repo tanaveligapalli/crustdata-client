@@ -46,3 +46,29 @@ scoring:                     # block 4: weights per profile; each profile sums t
     alcohol: [alcohol, wine, spirit, beer, brew, distill, liquor]
     tobacco: [tobacco, cigarette]
     gambling: [gambling, casino, betting]
+
+candidates:                  # block 3: candidate pools
+  country: India
+  country_code: IND          # how Crustdata stores the country on post authors
+  signals_full_at:           # verified facts (distinct sources) that make a signal 1.0
+    past_sponsorships: 2
+    active_hiring: 3
+    city_presence: 1
+  hiring:
+    days: 30
+    title_keywords: [sponsorship, partnerships, brand manager, event marketing, brand marketing]
+    limit: 100               # job postings, ~0.03 credits each
+  past_sponsors:
+    days: 365
+    sponsor_words: [sponsor, sponsors, sponsored, sponsorship]
+    event_words:
+      conference: [conference, summit]
+      concert: [concert, music festival]
+    linkedin_posts: 20       # 0.5 credits each, plus one model call each
+    instagram_posts: 5       # 1 credit each to fetch, plus one model call each
+  company_search:
+    limit: 25                # per search, 0.03 credits each
+    employee_ranges: ["201-500", "501-1000", "1001-5000", "5001-10000", "10001+"]
+    industries:              # exact Crustdata values (checked with company autocomplete)
+      conference: [Software Development, IT Services and IT Consulting, Financial Services, Banking, Telecommunications]
+      concert: [Food and Beverage Services, Food and Beverage Manufacturing, Beverage Manufacturing, Retail Apparel and Fashion, Consumer Electronics, Telecommunications, Entertainment Providers]

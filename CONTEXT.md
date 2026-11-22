@@ -156,15 +156,15 @@ The model only **extracts and drafts**. Scoring and decisions are plain code, so
 
 Make your own file(s) so we don't collide. Add your settings as **your own top-level section** in `config.yaml`. Add tests in `tests/` (`unittest`, offline, fakes or fixtures; no live calls in tests).
 
-| Block | Status (22 Nov, 16:00) | Files |
+| Block | Status (22 Nov, 17:00; "live" = checked against the real APIs) | Files |
 |---|---|---|
-| 1 · Skeleton, cache, ledger, restart safety | Done | `crustdata_client.py`, `agent_db.py`, `ledger.py`, `steps.py` |
-| 2 · Evidence ledger | Done | `evidence.py` |
+| 1 · Skeleton, cache, ledger, restart safety | Done, live (offline replay keeps the original date) | `crustdata_client.py`, `agent_db.py`, `ledger.py`, `steps.py` |
+| 2 · Evidence ledger | Done, used live by blocks 3, 3b, host check | `evidence.py` |
 | 3 · Candidate pools | Done, run live | `candidates.py` |
-| 3b · Instagram sponsor extraction | Done, offline tests | `instagram_sponsors.py`, `src/` |
-| 4 · Brief and scoring | Done; ranking issue in block 3's notes | `brief.py`, `scoring.py` |
-| Host verification | Done, offline tests | `host_check.py` |
-| 6 · Outreach and replies | Built, offline tests; live team-inbox run not done | `outreach.py` |
+| 3b · Instagram sponsor extraction | Done, live on the SIDTM post (2 matching fixes, see below) | `instagram_sponsors.py`, `src/` |
+| 4 · Brief and scoring | Done, live (two wordings → same brief and ranking); **2 open issues below** | `brief.py`, `scoring.py` |
+| Host verification | Done, live (crash on a domain-less match fixed) | `host_check.py` |
+| 6 · Outreach and replies | Contacts live; approval fix; **email not run live: no Gmail env vars yet** | `outreach.py` |
 | End-to-end run (one command, brief → meetings) | **Open** | — |
 | Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
 | 5 · Back-test | Built, offline tests; **needs a live run with post data spread over months** | `backtest.py`, `scripts/backtest.py` |
@@ -205,11 +205,17 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Resolve names with `/company/identify` (`{"names": [...]}`, max 25). No confident match → `cannot_verify`, "no company record matches this brand".
 - **Done when:** the SIDTM post above gives 9 sponsors with roles; ITC Limited and Trainocate resolve; small brands come out `cannot_verify`.
 - **Use:** `instagram_sponsors.process_post(post, fetched_at, db, run_id, client, instagram_sponsors.load_config(), extract.anthropic_caller(config))` → `{"evidence": [...], "leads": [...], ...}`.
-  - Matching (`src/match.py`) takes a company only when one clearly wins (`min_confidence` 0.8, `ambiguity_margin` 0.05); otherwise the name becomes a `Lead`, never a guess.
+  - Matching (`src/match.py`) takes a company only when one clearly wins (`min_confidence` **1.0**, `ambiguity_margin` 0.05); otherwise the name becomes a `Lead`, never a guess.
+    - Why 1.0: live, identify scores 1.0 for the same name and 0.8 for overlapping words. At 0.8, "Maharashtra Times" matched "Times of Maharashtra News", a different paper: a wrong fact.
+    - Same name twice, only one with a website → that one ("ITC Limited" itcportal.com vs a second "ITC Limited" with no site). Different names are never split this way.
+- **Live check (22 Nov), SIDTM post:** 9 sponsors with roles. ITC Limited, Nasher Miles, WOW Momo, The 3D Crafted, Trend Tree resolve. Trainocate does **not**: identify only offers "Trainocate India" at 0.6, so it stays `cannot_verify`. KLAW, Campus Times Pune, Maharashtra Times → `cannot_verify`.
   - Extractions are cached per caption, so reruns cost no model calls.
   - Block 3 reuses `extract.extract`, `match.match_names` and `build_records` for LinkedIn posts too.
 
-### Block 4 · Brief and scoring (done)
+### Block 4 · Brief and scoring (done, 2 open issues)
+- **Live check (22 Nov):** two wordings of the same summit gave the same profile, city, date, size, tiers and sponsors, and the same ranking (excluded categories came back in a different order only).
+- **Open issue 1: excluded categories that aren't industries do nothing.** "competing payment companies" becomes the key "payment", but Crustdata industries say "Financial Services", so no payments company is excluded and nobody is told. Either flag unmatched categories for a person, or match them against something richer than industries.
+- **Open issue 2: ranking.** One strong known signal beats several medium ones (see block 3's notes).
 - **Files:** `brief.py`, `scoring.py`, `config.yaml` (profiles + weights section).
 - `brief.py`: host's free-text description → `Brief` (model extracts, code validates: profile must be `conference` or `concert`, dates ISO, missing fields `None`).
 - `scoring.py`: `score(candidate, brief, config) -> Candidate`.
@@ -242,13 +248,16 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   Outreach refuses to start until `host_check` is verified `Evidence`.
   - Contacts: `find_contact` picks the best title by the `contact_roles` order and skips `contact_exclude_titles`. `business_email` stays `None` (see section 4: `/person/enrich` with the email add-on is untested).
   - The once-only send key is `email:{event}:{company_id}:{kind}`, so even a new run ID can't email the same company twice for the same event.
-  - **Still to do:** set the team Gmail env vars and run it live with a teammate playing the sponsor, to tick "done when".
+  - An approved pitch is stored (`approved_drafts`). After a crash between approval and sending, that exact text is sent; before this fix a fresh model redraft could go out without approval.
+  - **Live check (22 Nov):** `find_contact` works (Navi → "Head - Strategic Partnerships & Fund Raise", Diageo → "Brand Manager Guinness"). The Navi pick is a fundraising title: consider adding "fund" to `contact_exclude_titles`.
+  - **Still to do:** set `OUTREACH_SENDER`, `OUTREACH_TEAM_INBOX`, `OUTREACH_APP_PASSWORD` and run it live with a teammate playing the sponsor, to tick "done when".
 
 ### Host verification (done)
 - **File:** `host_check.py`. `host_check.check_host(brief, client, db, run_id)` → `Evidence`, saved under `host:<name>`.
 - Verified only if the host's own website, fetched live, names the host word for word. No website, a dead site or a site that doesn't name the host → `cannot_verify` with the reason, and `outreach.start_campaign` refuses to send.
 - If Crustdata knows the domain, its company ID rides along in the evidence value; it isn't required (small clubs often aren't in Crustdata).
 - Limit: it doesn't prove the host controls the site. A person still approves every email.
+- **Live check (22 Nov):** Razorpay with razorpay.com → verified. A made-up host on example.com → `cannot_verify` ("does not mention ..."); before the fix this crashed because identify returned a match with no domain.
 
 ### Open: end-to-end run
 - One command that runs a whole job: description → `brief.make_brief` → `host_check.check_host` → `candidates.find_candidates` → `scoring.rank` → host picks companies → `outreach.find_contact` → `outreach.start_campaign`. Then `python outreach.py replies|follow-ups|status`.

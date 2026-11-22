@@ -89,5 +89,11 @@ class HostCheckTests(unittest.TestCase):
         db.close()
 
 
+class IdentifyShapeTest(unittest.TestCase):
+    def test_a_match_with_no_domain_is_skipped_not_a_crash(self):
+        response = [{"matches": [{"company_data": {"crustdata_company_id": 1, "basic_info": {"primary_domain": None}}}]}]
+        self.assertIsNone(host_check.crustdata_company_id(response, "example.com"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,7 +40,7 @@ def crustdata_company_id(identify_response: Any, domain: str) -> int | None:
     for item in identify_response or []:
         for match in item.get("matches") or []:
             data = match.get("company_data") or {}
-            if (data.get("basic_info") or {}).get("primary_domain", "").lower() == domain:
+            if ((data.get("basic_info") or {}).get("primary_domain") or "").lower() == domain:
                 return data.get("crustdata_company_id")
     return None
 

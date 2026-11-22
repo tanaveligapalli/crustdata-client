@@ -206,5 +206,36 @@ class BlockTest(unittest.TestCase):
         self.assertEqual(count, 1)
 
 
+class MatchRulesFromLiveDataTest(unittest.TestCase):
+    """Cases seen live on 22 Nov with the SIDTM post."""
+
+    @staticmethod
+    def record(company_id, name, score, domain=None):
+        return {"confidence_score": score, "company_data": {
+            "crustdata_company_id": company_id, "basic_info": {"name": name, "primary_domain": domain}}}
+
+    def test_overlapping_words_are_not_a_match_with_the_live_threshold(self):
+        live = ig.load_config()["match"]
+        decision = match.decide([self.record(74833427, "Times of Maharashtra News", 0.8, "timesofmaharashtra.co.in")],
+                                live["min_confidence"], live["ambiguity_margin"])
+        self.assertEqual(decision["match_status"], "ambiguous")
+
+    def test_same_name_twice_takes_the_record_with_a_website(self):
+        decision = match.decide([self.record(2289, "ITC Limited", 1.0, "itcportal.com"),
+                                 self.record(8870643, "ITC Limited", 1.0),
+                                 self.record(2291, "ITC Hotels Limited", 0.8, "itchotels.com")], 1.0, 0.05)
+        self.assertEqual((decision["match_status"], decision["crustdata_company_id"]), ("matched", 2289))
+
+    def test_same_name_with_several_websites_stays_ambiguous(self):
+        decision = match.decide([self.record(1, "Klaw", 1.0, "kafkawize.io"), self.record(2, "KLAW", 1.0, "klaw.ge")],
+                                1.0, 0.05)
+        self.assertEqual(decision["match_status"], "ambiguous")
+
+    def test_different_names_are_never_split_by_website(self):
+        decision = match.decide([self.record(1, "Nova Labs Inc", 1.0, "nova.io"), self.record(2, "Nova Labs India", 1.0)],
+                                1.0, 0.05)
+        self.assertEqual(decision["match_status"], "ambiguous")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -94,6 +94,14 @@ def ensure_tables(db: sqlite3.Connection) -> None:
         company_name TEXT NOT NULL,
         at           TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS approved_drafts (    -- exactly what the host approved
+        run_id     TEXT NOT NULL,
+        company_id INTEGER NOT NULL,
+        to_role    TEXT NOT NULL,
+        subject    TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        PRIMARY KEY (run_id, company_id)
+    );
     CREATE TABLE IF NOT EXISTS replies_seen (
         message_id TEXT PRIMARY KEY,
         run_id     TEXT NOT NULL,
@@ -434,16 +442,22 @@ def start_campaign(db: sqlite3.Connection, run_id: str, brief: Brief,
             continue
         if row["state"] not in ("drafted", "approved"):
             continue                                   # already sent, or finished
-        draft = draft_pitch(candidate, contact, brief, model, db, run_id)
-        if row["state"] == "approved":                 # approved before a crash: don't ask again
-            approved_before_crash.append(draft)
+        saved = db.execute("SELECT * FROM approved_drafts WHERE run_id = ? AND company_id = ?",
+                           (run_id, candidate.company_id)).fetchone()
+        if row["state"] == "approved" and saved:       # approved before a crash: send that exact text
+            approved_before_crash.append(Draft(candidate.company_id, candidate.name, "intro", saved["to_role"],
+                                               saved["subject"], saved["body"], event_key=event_key(brief)))
             continue
+        draft = draft_pitch(candidate, contact, brief, model, db, run_id)
         drafts.append(draft)
         set_state(db, run_id, candidate.company_id, "drafted",
                   "pitch drafted from the brief and sourced evidence; waiting for approval")
 
     newly_approved = approve(drafts, run_id, config, ask, show)
     for d in newly_approved:
+        # A redraft after a crash could differ (the model isn't deterministic), so keep the approved text.
+        db.execute("INSERT OR REPLACE INTO approved_drafts VALUES (?, ?, ?, ?, ?)",
+                   (run_id, d.company_id, d.to_role, d.subject, d.body))
         set_state(db, run_id, d.company_id, "approved", "host approved the pitch")
     for d in approved_before_crash + newly_approved:
         if send_once(db, run_id, d, config, sender):

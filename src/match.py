@@ -7,6 +7,7 @@ matches[].company_data.crustdata_company_id, matches[].company_data.basic_info.n
 
 A company is taken only when one clearly wins: the top confidence_score is at
 least `min_confidence` and no other company is within `ambiguity_margin` of it.
+The one exception: records with the same name where only one has a website.
 Anything else is ambiguous (no ID) or unmatched. We never pick one by guessing.
 """
 
@@ -58,25 +59,33 @@ def identify_all(queries: list[str], client: Any, batch_size: int = 25) -> dict[
 
 def decide(matches: list[dict], min_confidence: float, ambiguity_margin: float) -> dict[str, Any]:
     """Pick a company only if one clearly wins. Same company seen twice keeps its best score."""
-    best: dict[int, tuple[float, str | None]] = {}
+    best: dict[int, tuple[float, str | None, str | None]] = {}
     for m in matches:
         data = m.get("company_data") or {}
         company_id = data.get("crustdata_company_id")
         score = m.get("confidence_score")
         if company_id is None or not isinstance(score, (int, float)):
             continue
-        name = (data.get("basic_info") or {}).get("name")
+        info = data.get("basic_info") or {}
         if company_id not in best or score > best[company_id][0]:
-            best[company_id] = (float(score), name)
+            best[company_id] = (float(score), info.get("name"), info.get("primary_domain"))
 
     if not best:
         return {"match_status": "unmatched", "crustdata_company_id": None,
                 "company_name": None, "confidence_score": None, "candidates": 0}
 
     ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
-    top_id, (top_score, top_name) = ranked[0]
-    close = [cid for cid, (s, _) in ranked[1:] if s >= top_score - ambiguity_margin]
-    if top_score < min_confidence or close:
+    top_score = ranked[0][1][0]
+    close = [cid for cid, (s, _, _) in ranked if s >= top_score - ambiguity_margin]
+    # Two records with the same name where only one has a website: the other is usually a
+    # duplicate stub (seen live: "ITC Limited" itcportal.com, and a second "ITC Limited" with none).
+    if len(close) > 1 and len({normalise(best[cid][1] or "")[0] for cid in close}) == 1:
+        with_site = [cid for cid in close if best[cid][2]]
+        if len(with_site) == 1:
+            close = with_site
+    top_id = close[0]
+    top_score, top_name, _ = best[top_id]
+    if top_score < min_confidence or len(close) > 1:
         return {"match_status": "ambiguous", "crustdata_company_id": None,
                 "company_name": None, "confidence_score": top_score, "candidates": len(ranked)}
     return {"match_status": "matched", "crustdata_company_id": top_id,

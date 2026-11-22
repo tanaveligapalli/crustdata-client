@@ -335,5 +335,34 @@ class HelperTests(unittest.TestCase):
         db.close()
 
 
+class ApprovalSurvivesCrashTest(Base):
+    def test_after_a_crash_the_approved_text_is_sent_not_a_redraft(self):
+        wording = {"now": "the approved wording"}
+
+        def model(system, user, schema):
+            return json.dumps({"subject": "Sponsoring TechNova", "body": f"Hello, this is {wording['now']}."}), 0.0
+
+        real_send_once = outreach.send_once
+
+        def die_before_sending(*args, **kwargs):
+            raise KeyboardInterrupt("killed after approval, before sending")
+
+        outreach.send_once = die_before_sending
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.campaign(Sender(), model=model)
+        finally:
+            outreach.send_once = real_send_once
+        self.assertEqual(self.state(1), "approved")
+
+        wording["now"] = "a different redraft"
+        s, asked = Sender(), []
+        self.campaign(s, model=model, ask=lambda q: asked.append(q) or "y")
+        acme = [m for m in s.sent if "Acme" in m["Subject"]]
+        self.assertEqual(len(acme), 1)
+        self.assertIn("the approved wording", acme[0].get_content())
+        self.assertFalse(any("Acme" in q for q in asked))   # already approved: not asked again
+
+
 if __name__ == "__main__":
     unittest.main()

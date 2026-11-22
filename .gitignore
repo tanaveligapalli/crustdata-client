@@ -6,3 +6,4 @@ agent.sqlite3
 .venv/
 .pytest_cache/
 outbox/
+.preview/

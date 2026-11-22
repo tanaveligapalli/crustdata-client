@@ -49,7 +49,8 @@ class Agent:
 
 
 def run_id_for(description: str) -> str:
-    return "run-" + hashlib.sha256(description.strip().encode("utf-8")).hexdigest()[:10]
+    """Same words, same run: spacing and line endings (Windows checkouts) don't matter."""
+    return "run-" + hashlib.sha256(" ".join(description.split()).encode("utf-8")).hexdigest()[:10]
 
 
 def open_agent(description: str, offline: bool = False, credit_limit: float = 150) -> Agent:

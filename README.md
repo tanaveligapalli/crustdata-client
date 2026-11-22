@@ -4,29 +4,110 @@ ContextCon 05 (BITS Pilani), theme "Services, Replaced". An agent that does the 
 event's sponsorship team or agency is paid for: from the host's description of the event
 to meetings booked with sponsor decision-makers.
 
-> **Draft.** Sections marked _to write_ are still open (see CONTEXT.md §5). Numbers marked
-> **[gap]** need a sourced figure before submission; don't fill them from memory.
+> Numbers marked **[gap]** need a sourced figure before submission; don't fill them from memory.
+
+## Run it
+
+```
+pip install -r requirements.txt
+set CRUSTDATA_API_KEY and ANTHROPIC_API_KEY in your environment
+streamlit run app.py
+```
+
+Pick an example from `demo/` or describe your event, then **Run**. The screen shows the brief,
+the host check, ranked sponsors with the evidence behind each one, then the pitches to approve
+and the pipeline.
+
+- **Replay from cache:** the switch on the screen replays a description that already ran once,
+  with no API or model calls. This is the backup for the demo.
+- **Email:** with `OUTREACH_SENDER`, `OUTREACH_TEAM_INBOX` and `OUTREACH_APP_PASSWORD` set, approved
+  emails go to the team Gmail inbox. Without them they are written to `outbox/`.
+- **Replies:** `python outreach.py replies RUN_ID brief.json` (the screen offers `brief.json`).
+- **Tests:** `python -m unittest discover -s tests` (offline, no keys needed).
 
 ## The job and who pays for it today
-_To write._
+
+An event host needs sponsors. Someone has to find companies likely to sponsor this kind of
+event, check each one, find the right person, write a pitch, send it, follow up, answer
+questions and book a meeting. Today the host pays a sponsorship agency (a retainer or a share
+of each deal, **[gap]** for a sourced figure) or keeps a team doing it by hand. Our own
+sponsorship team does it by hand with a mail-merge tool (see below).
+
+We do this job for **medium-scale events in India**: conferences and summits, concerts and
+music festivals, with deals of roughly ₹1 lakh to ₹50 lakh (our assumption, **[gap]**).
 
 ## Input
-_To write._
+
+A plain description of the event, in the host's words: name, type, date, city, expected
+audience, the host organization and its website, sponsorship tiers and prices, current and
+past sponsors, and kinds of company to avoid. `brief.py` turns it into a structured brief; the
+model only copies text out, and code drops anything not found word for word in the
+description. A missing required field (event, type, audience, host) is asked back, not guessed.
 
 ## Finished result
-_To write._
+
+**Meetings booked with sponsor decision-makers**, and a pipeline showing every company's state
+and why: drafted, sent, follow-up sent, question answered, meeting booked, declined, opted out,
+no response after two follow-ups, or handed to the host (negotiation, or anything the agent
+can't settle).
 
 ## Pass mark
-_To write: the back-test result (CONTEXT.md, "next steps")._
+
+The back-test (`backtest.py`) asks: at a past event's date, do its real sponsors rank above
+companies that sponsored other events, using only facts dated before the event?
+
+- **Result so far: cannot verify.** A first trial (55 LinkedIn posts, Nov 2025 to Sep 2026)
+  found 19 events, 9 testable, 110 real sponsors and **none** with an earlier sponsorship in the
+  sample, so there was nothing to rank on. The sample was about 0.5% of matching posts; a pass
+  mark needs much denser collection (about 0.8 credits and $0.013 per post).
+- What is verified today, with tests: every fact has a source and a date or says "cannot
+  verify"; the same event described in two wordings gives the same brief and ranking; nothing is
+  sent twice after a crash.
 
 ## Data sources
-_To write._
+
+| Source | Used for | Freshness |
+|---|---|---|
+| Crustdata job search | Companies hiring sponsorship, brand and event-marketing roles in the last 30 days; their city | Fresh (postings from the last day) |
+| Crustdata LinkedIn post search | Past sponsorships: posts naming a company as a sponsor of a similar event | About 2 months behind |
+| Crustdata web search + page fetch | Instagram sponsor posts (search results are leads; the fetched post is the fact), the host's website | Live |
+| Crustdata company identify / search | Company IDs (the one key for a company), names, domains, industries, look-alikes | Indexed |
+| Crustdata person search | The decision-maker at a picked company: current title, start date | Indexed |
+| Anthropic Claude | Extract the brief and sponsor names, draft pitches, classify replies. Never scores or decides | — |
+| Team Gmail (SMTP/IMAP) | Send approved emails to our own team inbox; read replies | Live |
+
+Every fact is an `Evidence` record: source URL or API field, the exact quote, the record's date
+and when we fetched it. No date, or the quote isn't on the page: **cannot verify**, with what is
+missing. No facts from model memory.
 
 ## Where a person approves
-_To write._
+
+- **Every pitch.** The host reads each one in full and ticks it before it is sent; the text sent
+  is the text approved, even after a crash.
+- **Every reply's answer or meeting invite**, at the terminal prompt.
+- **Negotiation and unanswerable questions** go to the host; the agent never agrees terms.
+- **Failed sources:** if a source keeps failing, the run waits for a person to confirm before
+  continuing, instead of treating silence as "no sponsors".
+- **Unverified host:** if the host's own website doesn't name the host, outreach is blocked.
+- During the event every email goes to **our own team inbox**, with the real target named in the
+  subject. No real company is contacted.
 
 ## The cost ledger
-_To write._
+
+Every outside call is a row in the `ledger` table (`ledger.py`): Crustdata (credits from the
+response header, 0 for a cache hit), model calls (dollars from token counts), SMTP and IMAP.
+Each run has a credit limit. The screen shows the job's total; the measured costs are in the
+business case below.
+
+## Personal data (India's DPDP Act, 2023)
+
+- We keep only **business details** of the one chosen contact per company: name, current title,
+  profile link. No personal emails or phone numbers are requested.
+- Contacts are looked up **only for companies the host picks**, not for every candidate.
+- An opt-out is kept across runs and that company is never emailed again; every email says how
+  to opt out.
+- Everything is stored locally in SQLite (`agent.sqlite3`, gitignored); raw pages with
+  commenters' names are never committed.
 
 ---
 
@@ -81,7 +162,8 @@ From the cost ledger, 22 Nov 2026 runs:
 |---|---|---|---|
 | Find candidates, all pools (block 3) | Bengaluru fintech summit: 158 candidates | ~37 | ~$0.59 |
 | Instagram sponsor extraction (block 3b) | 16 posts, 15 sponsor mentions | 6 | $0.14 |
-| Contacts, outreach, replies (blocks 5–6) | **[gap]** not run live yet | **[gap]** | **[gap]** |
+| Contacts and pitches (block 6, via the screen) | Same summit: 2 contacts, 2 drafted pitches | ~0.9 per contact | ~$0.011 per pitch |
+| Replies, follow-ups | **[gap]** not run live yet (needs the team Gmail) | — | **[gap]** |
 
 - Reruns hit the caches, so the first run of an event costs the most.
 - A credit's price in rupees: **[gap]**, from our Crustdata plan. Until then, cost per job is
@@ -97,5 +179,37 @@ From the cost ledger, 22 Nov 2026 runs:
 ---
 
 ## Diagram
-_To write: components, data flow, where Crustdata, web and model calls happen,
-approvals, retries and the ledger._
+
+```mermaid
+flowchart TD
+    D[Host's description] --> B[Brief<br/>model extracts, code checks]
+    B --> H{Host check<br/>site names the host?}
+    B --> P[Candidate pools]
+    P --> J[Job search: hiring now]
+    P --> L[LinkedIn posts: past sponsors]
+    P --> I[Web search + fetch: Instagram posts]
+    P --> C[Company identify / search: host's sponsors, look-alikes]
+    L & I --> X[Model reads sponsor names<br/>code checks each is in the text]
+    J & X & C --> E[(Evidence ledger<br/>source, quote, date)]
+    E --> S[Scoring: plain code<br/>hard filters, weights from config.yaml]
+    S --> UI[Screen: ranked sponsors + evidence]
+    UI -->|host picks| K[Person search: contact]
+    K --> W[Pitch drafted<br/>numbers checked against brief]
+    H -->|not verified| BLOCK[Outreach blocked]
+    W -->|host approves each| M[Send once to team inbox]
+    M --> R[Replies: classify<br/>answer from brief / book meeting / hand to host]
+    R -->|person approves| M
+
+    subgraph infra [Every call]
+        LED[(Cost ledger)]
+        CACHE[(Response cache)]
+        STEP[(Steps: restart-safe)]
+    end
+```
+
+- **Crustdata calls** (job, post, company, person search, web search and fetch) go through one
+  client: response cache, per-endpoint rate limits, retries with backoff on 429/5xx, a credit
+  limit, and a ledger row each. A source that keeps failing holds the run for a person.
+- **Model calls** only extract and draft; each has a ledger row and a cache.
+- **Restart safety:** each paid stage is a saved step and each email a once-only action, so a
+  kill and restart replays finished work and never sends twice.

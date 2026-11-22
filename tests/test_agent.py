@@ -47,6 +47,7 @@ class AgentTest(unittest.TestCase):
 
     def test_the_same_description_is_the_same_run(self):
         self.assertEqual(agent.run_id_for("Summit in Pune"), agent.run_id_for("  Summit in Pune\n"))
+        self.assertEqual(agent.run_id_for("Summit\r\nin Pune"), agent.run_id_for("Summit\nin Pune"))
         self.assertNotEqual(agent.run_id_for("Summit in Pune"), agent.run_id_for("Summit in Goa"))
 
     def test_finished_stages_replay_without_any_call(self):

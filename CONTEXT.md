@@ -172,7 +172,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
 | 5 · Back-test | Built; trial run (55 posts) = **cannot verify**: no repeat sponsors in the sample | `backtest.py`, `scripts/backtest.py` |
 | 7 · Hard cases + kill test | Partly: "contact who has left" now tested; layoffs needs `budget`; kill test needs the end-to-end run | — |
-| README, diagram, business case, video | **Open** | — |
+| README, diagram, business case, video | README and diagram written (gaps marked **[gap]**: agency fee, credit price, replies cost); video open | `README.md` |
 
 ### Block 3 · Candidate pools (done)
 - **File:** `candidates.py` (+ the `candidates` section in `config.yaml`).

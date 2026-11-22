@@ -242,6 +242,60 @@ class ReplyTests(Base):
         self.assertEqual(self.state(1), "sent")
 
 
+class SendOnceAcrossRunsTests(Base):
+    def test_new_run_id_cannot_resend_the_same_event_to_the_same_company(self):
+        s = Sender()
+        self.campaign(s)
+        sent = len(s.sent)
+        outreach.start_campaign(self.db, "run-second", BRIEF, SELECTED, CONFIG, s,
+                                host_check=HOST_OK, ask=yes, show=self.quiet)
+        self.assertEqual(len(s.sent), sent)
+
+    def test_a_different_event_can_pitch_the_same_company(self):
+        s = Sender()
+        self.campaign(s)
+        other = Brief(**{**BRIEF.__dict__, "event_name": "TechNova Summit 2028", "event_date": "2028-03-14"})
+        outreach.start_campaign(self.db, "run-other", other, SELECTED[:1], CONFIG, s,
+                                host_check=HOST_OK, ask=yes, show=self.quiet)
+        self.assertEqual(len(s.sent), 4)
+
+
+class FindContactTests(unittest.TestCase):
+    class Client:
+        def __init__(self, drop=()):
+            self.bodies, self.drop = [], drop
+
+        def call(self, path, body):
+            from crustdata_client import ApiResponse
+            self.bodies.append((path, body))
+            fixture = json.loads((ROOT / "tests" / "fixtures" / "person_search.json").read_text())
+            fixture["profiles"] = [p for p in fixture["profiles"] if p["basic_profile"]["name"] not in self.drop]
+            return ApiResponse(fixture, "2026-11-22T10:00:00+00:00", False, 0.69)
+
+    ROLES = {**CONFIG, "contact_roles": ["Head of Partnerships", "Partnerships", "Marketing Manager"],
+             "contact_exclude_titles": ["private equity"]}
+
+    def test_picks_best_role_with_sourced_evidence(self):
+        client = self.Client()
+        found = outreach.find_contact(client, candidate(111111, "Example Corp"), self.ROLES)
+        self.assertEqual((found.name, found.title), ("Vikram Sethi", "Head of Partnerships"))
+        self.assertIsNone(found.business_email)
+        self.assertEqual(found.evidence[0].source_type, "crustdata:/person/search")
+        self.assertEqual(found.evidence[0].record_date, "2023-01-01")
+        path, body = client.bodies[0]
+        self.assertEqual(path, "/person/search")
+        self.assertEqual(body["filters"]["conditions"][0]["value"], 111111)
+
+    def test_unrelated_partnerships_title_is_never_picked(self):
+        # Only "Private Equity Partnerships" matches "Partnerships" once Vikram is gone: no contact at all.
+        roles = {**self.ROLES, "contact_roles": ["Partnerships"]}
+        client = self.Client(drop=("Vikram Sethi",))
+        self.assertIsNone(outreach.find_contact(client, candidate(111111, "Example Corp"), roles))
+        without_rule = {**roles, "contact_exclude_titles": []}
+        found = outreach.find_contact(client, candidate(111111, "Example Corp"), without_rule)
+        self.assertEqual(found.name, "Neha Iyer")        # proves the exclusion rule is what stopped it
+
+
 class FollowUpTests(Base):
     def test_two_follow_ups_then_no_response(self):
         s = Sender()

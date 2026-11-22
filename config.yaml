@@ -94,6 +94,14 @@ outreach:                    # block 6: outreach and replies
     - Head of Marketing
     - Marketing Manager
     - CMO
+  contact_exclude_titles:    # a title containing any of these is never picked, whatever else it says
+    - private equity
+    - venture
+    - investor
+    - recruit
+    - talent
+    - legal
+    - finance
   follow_up_after_days: 3
   max_follow_ups: 2
   meeting_minutes: 30

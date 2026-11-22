@@ -1,0 +1,180 @@
+{
+  "_note": "Response shape captured live from /person/search (HubSpot, 3 results, 0.69 credits, 22 Nov 2026). Names, URLs and company details replaced with synthetic values so no real person is stored.",
+  "profiles": [
+    {
+      "crustdata_person_id": 900001,
+      "basic_profile": {
+        "name": "Asha Rao",
+        "professional_network_name": "Asha Rao",
+        "headline": "Marketing Manager",
+        "current_title": "Marketing Manager",
+        "normalized_title": {
+          "matched_title": "Marketing Manager",
+          "department": "Marketing",
+          "sub_department": "Marketing Strategy & Planning",
+          "similarity": 0.9,
+          "confident": true
+        },
+        "location": {
+          "city": "Mumbai",
+          "state": "Maharashtra",
+          "country": "India",
+          "continent": "Asia",
+          "raw": "Mumbai, India",
+          "full_location": "Mumbai, Maharashtra, India"
+        }
+      },
+      "social_handles": {
+        "professional_network_identifier": {
+          "profile_url": "https://www.linkedin.com/in/example-asha-rao"
+        },
+        "dev_platform_identifier": {
+          "profile_url": null
+        },
+        "twitter_identifier": {
+          "slug": ""
+        }
+      },
+      "experience": {
+        "employment_details": {
+          "current": [
+            {
+              "name": "Example Corp",
+              "company_website": "https://example.com",
+              "professional_network_id": "1",
+              "title": "Marketing Manager",
+              "description": "",
+              "employment_type": "Full-time",
+              "start_date": "2024-06-01T00:00:00",
+              "end_date": null,
+              "is_default": true,
+              "crustdata_company_id": 111111,
+              "company_status": "active",
+              "seniority_level": "Manager",
+              "function_category": "Marketing",
+              "business_email_verified": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "crustdata_person_id": 900002,
+      "basic_profile": {
+        "name": "Vikram Sethi",
+        "professional_network_name": "Vikram Sethi",
+        "headline": "Head of Partnerships",
+        "current_title": "Head of Partnerships",
+        "normalized_title": {
+          "matched_title": "Head of Partnerships",
+          "department": "Marketing",
+          "sub_department": "Marketing Strategy & Planning",
+          "similarity": 0.9,
+          "confident": true
+        },
+        "location": {
+          "city": "Mumbai",
+          "state": "Maharashtra",
+          "country": "India",
+          "continent": "Asia",
+          "raw": "Mumbai, India",
+          "full_location": "Mumbai, Maharashtra, India"
+        }
+      },
+      "social_handles": {
+        "professional_network_identifier": {
+          "profile_url": "https://www.linkedin.com/in/example-vikram-sethi"
+        },
+        "dev_platform_identifier": {
+          "profile_url": null
+        },
+        "twitter_identifier": {
+          "slug": ""
+        }
+      },
+      "experience": {
+        "employment_details": {
+          "current": [
+            {
+              "name": "Example Corp",
+              "company_website": "https://example.com",
+              "professional_network_id": "1",
+              "title": "Head of Partnerships",
+              "description": "",
+              "employment_type": "Full-time",
+              "start_date": "2023-01-01T00:00:00",
+              "end_date": null,
+              "is_default": true,
+              "crustdata_company_id": 111111,
+              "company_status": "active",
+              "seniority_level": "Manager",
+              "function_category": "Marketing",
+              "business_email_verified": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "crustdata_person_id": 900003,
+      "basic_profile": {
+        "name": "Neha Iyer",
+        "professional_network_name": "Neha Iyer",
+        "headline": "Director, Private Equity Partnerships",
+        "current_title": "Director, Private Equity Partnerships",
+        "normalized_title": {
+          "matched_title": "Director, Private Equity Partnerships",
+          "department": "Marketing",
+          "sub_department": "Marketing Strategy & Planning",
+          "similarity": 0.9,
+          "confident": true
+        },
+        "location": {
+          "city": "Mumbai",
+          "state": "Maharashtra",
+          "country": "India",
+          "continent": "Asia",
+          "raw": "Mumbai, India",
+          "full_location": "Mumbai, Maharashtra, India"
+        }
+      },
+      "social_handles": {
+        "professional_network_identifier": {
+          "profile_url": "https://www.linkedin.com/in/example-neha-iyer"
+        },
+        "dev_platform_identifier": {
+          "profile_url": null
+        },
+        "twitter_identifier": {
+          "slug": ""
+        }
+      },
+      "experience": {
+        "employment_details": {
+          "current": [
+            {
+              "name": "Example Corp",
+              "company_website": "https://example.com",
+              "professional_network_id": "1",
+              "title": "Director, Private Equity Partnerships",
+              "description": "",
+              "employment_type": "Full-time",
+              "start_date": "2022-03-01T00:00:00",
+              "end_date": null,
+              "is_default": true,
+              "crustdata_company_id": 111111,
+              "company_status": "active",
+              "seniority_level": "Manager",
+              "function_category": "Marketing",
+              "business_email_verified": false
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "next_cursor": "example-cursor",
+  "total_count": 3,
+  "total_count_relation": null,
+  "remarks": []
+}

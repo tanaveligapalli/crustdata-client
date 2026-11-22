@@ -169,6 +169,8 @@ def find_contact(client, candidate: Candidate, config: dict[str, Any]) -> Contac
     best, best_rank = None, len(roles)
     for person in (response.data or {}).get("profiles", []):
         title = (person.get("basic_profile") or {}).get("current_title") or ""
+        if any(word.lower() in title.lower() for word in config.get("contact_exclude_titles", [])):
+            continue                       # "Private Equity Partnerships" is not brand partnerships
         rank = next((i for i, role in enumerate(roles) if role.lower() in title.lower()), None)
         if rank is not None and rank < best_rank:
             best, best_rank = person, rank
@@ -241,6 +243,18 @@ class Draft:
     attachments: list[tuple[str, str, str]] = field(default_factory=list)  # (filename, text, mime subtype)
     in_reply_to: str | None = None
     notes: list[str] = field(default_factory=list)   # shown to the approver, never sent
+    event_key: str = ""           # which event this pitch is for; part of the once-only key
+
+
+def event_key(brief: Brief) -> str:
+    """Names the event, not the run, so a new run ID can't email the same company twice for it."""
+    parts = [brief.host_name, brief.event_name, brief.event_date or ""]
+    return "-".join(re.sub(r"[^a-z0-9]+", "-", p.casefold()).strip("-") for p in parts)
+
+
+def once_key(draft: Draft) -> str:
+    """One email per company, kind and event: stable across runs (CONTEXT.md: email:{company_id}:{kind})."""
+    return ":".join(p for p in ("email", draft.event_key, str(draft.company_id), draft.kind) if p)
 
 
 PITCH_SCHEMA = {"type": "object", "properties": {"subject": {"type": "string"}, "body": {"type": "string"}},
@@ -289,12 +303,13 @@ def draft_pitch(candidate: Candidate, contact: Contact | None, brief: Brief,
             bad = unsupported_numbers(draft["subject"] + " " + draft["body"], _allowed_texts(brief, candidate))
             if not bad:
                 return Draft(candidate.company_id, candidate.name, "intro", to_role,
-                             draft["subject"], draft["body"], notes=notes)
+                             draft["subject"], draft["body"], notes=notes, event_key=event_key(brief))
             notes.append(f"model draft dropped: numbers not in the brief or evidence: {sorted(bad)}")
         else:
             notes.append("model draft unusable: used the template")
     subject, body = template_pitch(candidate, contact, brief)
-    return Draft(candidate.company_id, candidate.name, "intro", to_role, subject, body, notes=notes)
+    return Draft(candidate.company_id, candidate.name, "intro", to_role, subject, body, notes=notes,
+                 event_key=event_key(brief))
 
 
 def follow_up(row: sqlite3.Row, brief: Brief, number: int) -> Draft:
@@ -304,7 +319,7 @@ def follow_up(row: sqlite3.Row, brief: Brief, number: int) -> Draft:
     body = (f"{hello}\n\nFollowing up on my note about sponsoring {brief.event_name}. "
             f"Happy to share the sponsorship deck or set up a short call.\n\n{brief.host_name}")
     return Draft(row["company_id"], row["company_name"], f"follow_up_{number}", to_role,
-                 f"Re: Sponsoring {brief.event_name}", body)
+                 f"Re: Sponsoring {brief.event_name}", body, event_key=event_key(brief))
 
 
 # -- sending ---------------------------------------------------------------------
@@ -375,7 +390,7 @@ def send_once(db: sqlite3.Connection, run_id: str, draft: Draft, config: dict[st
         return {"message_id": msg["Message-ID"], "sent_at": now_iso()}
 
     try:
-        result = do_once(db, run_id, f"email:{run_id}:{draft.company_id}:{draft.kind}", "email", action)
+        result = do_once(db, run_id, once_key(draft), "email", action)
     except ActionNeedsCheck as e:
         set_state(db, run_id, draft.company_id, "needs_person",
                   f"{e}: check the team inbox's sent folder, don't resend blindly")
@@ -680,7 +695,7 @@ def _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, repl
     if config.get("booking_link"):
         body += f" If another time suits you better, pick one here: {config['booking_link']}"
     draft = Draft(company_id, company, "invite", to_role, subject, body + f"\n\n{brief.host_name}",
-                  attachments=attachments, in_reply_to=reply.message_id)
+                  attachments=attachments, in_reply_to=reply.message_id, event_key=event_key(brief))
     if approve([draft], run_id, config, ask, show) and send_once(db, run_id, draft, config, sender):
         set_state(db, run_id, company_id, "meeting_booked",
                   f"meeting invite sent for {slot.isoformat()}" if slot else "booking link sent")

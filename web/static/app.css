@@ -374,7 +374,6 @@ details.quiet ul { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--ink-so
 .pitch-foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.8rem 1.25rem; border-top: 1.5px solid var(--line); }
 .state-pill { font-size: 0.78rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 100px; background: var(--green-light); border: 1.5px solid var(--ink); }
 
-<<<<<<< Updated upstream
 /* -- people to pitch ---------------------------------------------------------------- */
 
 .people { margin-top: 3rem; }
@@ -416,53 +415,6 @@ details.quiet ul { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--ink-so
 .reply-head b { font-family: var(--serif); font-size: 1rem; }
 .reply-text { margin: 0.4rem 0 0.3rem; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
 .deal-contact { display: block; color: var(--ink-soft) !important; font-size: 0.82rem; margin-bottom: 0.15rem; }
-=======
-/* contact on a pitch: who it's for, and the fact that they hold the role */
-.contact { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.9rem 1.25rem; border-bottom: 1.5px solid var(--line); }
-.contact .logo { width: 2.5rem; height: 2.5rem; border-radius: 50%; font-size: 0.9rem; }
-.contact-name { font-weight: 600; margin: 0; }
-.contact-name a { color: var(--blue); text-underline-offset: 3px; }
-.contact-fact { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--muted); }
-.contact-fact .status-tag { margin-right: 0.25rem; }
-
-/* -- mailbox (sandbox) -------------------------------------------------------------- */
-
-.sandbox-note { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; padding: 0.8rem 1rem; margin-bottom: 1.25rem;
-  border: 2px dashed var(--ink); border-radius: var(--radius); background: var(--amber-light); font-size: 0.92rem; }
-.mail-grid { display: grid; grid-template-columns: 1fr 22rem; gap: 1.25rem; align-items: start; }
-.mail-grid > * { min-width: 0; }
-.threads { display: grid; gap: 1rem; }
-.thread { background: var(--white); border: 2px solid var(--ink); border-radius: var(--radius-lg); overflow: hidden; }
-.thread-head { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.1rem; background: var(--paper); border-bottom: 1.5px solid var(--line); }
-.thread-head .logo { width: 2.2rem; height: 2.2rem; border-radius: 0.55rem; }
-.thread-head b { font-family: var(--serif); font-size: 1.1rem; }
-.thread-head .state-pill { margin-left: auto; }
-.msg { padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--line); }
-.msg:last-child { border-bottom: 0; }
-.msg-in { background: #fffbea; border-left: 4px solid var(--yellow); }
-.msg-meta { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; flex-wrap: wrap; }
-.msg-meta b { color: var(--ink); font-weight: 600; }
-.msg-subject { font-weight: 600; margin: 0 0 0.3rem; }
-.msg-body { white-space: pre-wrap; margin: 0; font: 400 0.92rem/1.55 var(--sans); color: var(--ink-soft); }
-.invite { display: inline-flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; padding: 0.35rem 0.75rem; border: 1.5px solid var(--ink);
-  border-radius: 100px; background: var(--green-light); font-weight: 600; font-size: 0.85rem; }
-.composer-sponsor { position: sticky; top: 6rem; display: grid; gap: 0.5rem; background: #fffbea; }
-.composer-sponsor .card-title { margin-bottom: 0.4rem; }
-.composer-sponsor textarea { min-height: 7rem; }
-.eyebrow-sm { margin: 0; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--pink); }
-.field-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
-select { font: 500 0.95rem var(--sans); padding: 0.55rem 0.7rem; border: 1.5px solid var(--ink); border-radius: 0.6rem; background: var(--white); }
-
-/* -- approval dialog ---------------------------------------------------------------- */
-
-.approval { width: min(40rem, 100% - 2rem); border: 2px solid var(--ink); border-radius: var(--radius-lg); padding: 1.5rem;
-  background: var(--white); box-shadow: 8px 8px 0 var(--ink); }
-.approval::backdrop { background: rgba(17, 17, 17, 0.45); backdrop-filter: blur(3px); }
-.approval-body { white-space: pre-wrap; font: 400 0.92rem/1.55 var(--sans); background: var(--paper); border: 1.5px solid var(--line);
-  border-radius: 0.75rem; padding: 1rem; max-height: 55vh; overflow: auto; margin: 0 0 1.25rem; }
-.approval-foot { display: flex; justify-content: flex-end; gap: 0.75rem; align-items: center; }
-.approval .btn-sm { --bg: var(--white); border: 2px solid var(--ink); }
->>>>>>> Stashed changes
 
 /* -- pipeline board ------------------------------------------------------------------ */
 
@@ -512,8 +464,6 @@ select { font: 500 0.95rem var(--sans); padding: 0.55rem 0.7rem; border: 1.5px s
 /* -- small screens ---------------------------------------------------------------- */
 
 @media (max-width: 1000px) {
-  .mail-grid { grid-template-columns: 1fr; }
-  .composer-sponsor { position: static; }
   .steps { grid-template-columns: repeat(2, 1fr); }
   .grid-2, .debug-grid, .principles { grid-template-columns: 1fr; }
 }

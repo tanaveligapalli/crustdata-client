@@ -57,10 +57,9 @@ def run_id_for(description: str) -> str:
     return "run-" + hashlib.sha256(" ".join(description.split()).encode("utf-8")).hexdigest()[:10]
 
 
-def open_agent(description: str, offline: bool = False, credit_limit: float = 150,
-               db_path: str | Path = agent_db.DEFAULT_PATH) -> Agent:
+def open_agent(description: str, offline: bool = False, credit_limit: float = 150) -> Agent:
     run_id = run_id_for(description)
-    db = agent_db.connect(db_path)
+    db = agent_db.connect()
     client = CrustdataClient(run_id=run_id, ledger_db=db, credit_limit=credit_limit, offline=offline)
     outreach_config, email_ready = _outreach_config()
     config = {"brief": brief_mod.load_config(), "candidates": candidates_mod.load_config(),

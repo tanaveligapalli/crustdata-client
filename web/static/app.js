@@ -179,18 +179,10 @@ async function init() {
   $("#draft-btn").addEventListener("click", findPeople);
   $("#pitch-people-btn").addEventListener("click", draftPitches);
   $("#send-btn").addEventListener("click", sendApproved);
-<<<<<<< Updated upstream
   $("#check-replies-btn").addEventListener("click", (e) => action("replies", [], e.currentTarget));
   $("#send-held-btn").addEventListener("click", sendHeld);
   $("#discard-held-btn").addEventListener("click", discardHeld);
   $("#demo-inbox").addEventListener("submit", addDemoReply);
-=======
-  $("#sponsor-send").addEventListener("click", sendSponsorReply);
-  $("#replies-btn").addEventListener("click", () => action("replies", [], $("#replies-btn")));
-  $("#approval-yes").addEventListener("click", () => decide(true));
-  $("#approval-no").addEventListener("click", () => decide(false));
-  $("#approval").addEventListener("cancel", (e) => e.preventDefault());   // Esc doesn't dismiss: answer it
->>>>>>> Stashed changes
 
   const match = location.hash.match(/^#run=([\w-]+)/);
   if (match) openRun(match[1]);
@@ -262,38 +254,7 @@ async function refresh() {
   if (data.job && data.job.running) state.timer = setTimeout(refresh, 2000);
 }
 
-<<<<<<< Updated upstream
 async function action(kind, companyIds, button, extra = {}) {
-=======
-async function sendSponsorReply() {
-  const body = $("#sponsor-text").value.trim();
-  const companyId = Number($("#sponsor-company").value);
-  if (!body || !companyId) return showAlert("Pick a company and write the sponsor's reply.");
-  setBusy($("#sponsor-send"), true);
-  const { ok, data } = await api(`/api/runs/${encodeURIComponent(state.runId)}/sponsor-reply`, {
-    method: "POST", body: JSON.stringify({ company_id: companyId, body }),
-  });
-  setBusy($("#sponsor-send"), false);
-  if (!ok) return showAlert(data.error || "Couldn't save the reply.");
-  $("#sponsor-text").value = "";
-  refresh();
-}
-
-async function decide(approve) {
-  const pending = state.view?.job?.pending;
-  if (!pending) return;
-  $("#approval-yes").disabled = $("#approval-no").disabled = true;
-  await api(`/api/runs/${encodeURIComponent(state.runId)}/decide`, {
-    method: "POST", body: JSON.stringify({ id: pending.id, approve }),
-  });
-  state.shownApproval = null;
-  $("#approval").close();
-  $("#approval-yes").disabled = $("#approval-no").disabled = false;
-  setTimeout(refresh, 400);
-}
-
-async function action(kind, companyIds, button) {
->>>>>>> Stashed changes
   setBusy(button, true);
   const { ok, status, data } = await api(`/api/runs/${encodeURIComponent(state.runId)}/${kind}`, {
     method: "POST", body: JSON.stringify({ company_ids: [...companyIds], ...extra }),
@@ -404,13 +365,8 @@ function render(view) {
   drawSponsors(view, running);
   drawPeople(view, running);
   drawPitches(view, running);
-  drawMailbox(view, running);
   drawPipeline(view);
-<<<<<<< Updated upstream
   drawReplies(view, running);
-=======
-  drawApproval(job.pending);
->>>>>>> Stashed changes
   $("#footer-run").textContent = `Run ${view.run_id}`;
   if (view.sponsors.some((s) => s.logo || plainDomain(s.domain))) drawLogoStrip(view.sponsors);
 }
@@ -618,12 +574,7 @@ function pitchCard(p, pitchState) {
   } else {
     foot = el("span", { class: "state-pill", text: pitchState.replace(/_/g, " ") });
   }
-<<<<<<< Updated upstream
   card.append(...[   // append() would turn a null into the text "null"
-=======
-  card.append(...[        // native append would print "null" for an empty part
-    p.contact ? contactBlock(p.contact, p.company) : null,
->>>>>>> Stashed changes
     el("div", { class: "pitch-head" },
       el("p", {}, el("span", { class: "label", text: "To" }), p.to_role),
       el("p", {}, el("span", { class: "label", text: "Company" }), p.company)),
@@ -635,7 +586,6 @@ function pitchCard(p, pitchState) {
   return card;
 }
 
-<<<<<<< Updated upstream
 /* -- people: the host picks who to pitch at each company ------------------------------ */
 
 function drawPeople(view, running) {
@@ -743,98 +693,11 @@ function updateHeldBar(running) {
   $("#held-count").textContent = String(n);
   $("#send-held-btn").disabled = !n || running || state.config.offline;
   $("#discard-held-btn").disabled = !n || running || state.config.offline;
-=======
-function contactBlock(c, company) {
-  const link = safeUrl(c.profile_url);
-  const fact = (c.facts || [])[0];
-  return el("div", { class: "contact" },
-    logoEl(c.name, null, null),
-    el("div", {},
-      el("p", { class: "contact-name" }, link ? el("a", { href: link, target: "_blank", rel: "noopener noreferrer", text: c.name }) : c.name,
-        ` · ${c.title}`),
-      fact ? el("p", { class: "contact-fact" },
-        el("span", { class: `status-tag ${fact.status === "verified" ? "ok" : "no"}`, text: fact.status === "verified" ? "Verified" : "Can't verify" }),
-        `holds this role at ${company} now`, fact.date ? ` · since ${niceDate(fact.date)}` : "", " · People data") : null));
-}
-
-function drawMailbox(view, running) {
-  const mail = view.mail || [];
-  const sandbox = Boolean(state.config.sandbox);
-  show($("#mailbox"), mail.length > 0);
-  show($("#sandbox-note"), sandbox);
-  if (!mail.length) return;
-  const states = Object.fromEntries(view.pipeline.map((r) => [r.company_id, r.state]));
-  const logos = Object.fromEntries(view.sponsors.map((s) => [s.company_id, s]));
-  const unread = mail.filter((m) => !m.handled).length;
-  $("#mailbox-sub").textContent = `${mail.filter((m) => m.direction === "out").length} sent · ${mail.filter((m) => m.direction === "in").length} replies`;
-  $("#unread-count").textContent = String(unread);
-  $("#unread-plural").textContent = unread === 1 ? "y" : "ies";
-  $("#replies-btn").disabled = running || !unread;
-
-  const signature = JSON.stringify([mail.map((m) => [m.message_id, m.handled]), states]);
-  if (state.rendered.mail !== signature) {
-    state.rendered.mail = signature;
-    const byCompany = new Map();
-    for (const m of mail) {
-      if (!byCompany.has(m.company_id)) byCompany.set(m.company_id, []);
-      byCompany.get(m.company_id).push(m);
-    }
-    $("#threads").replaceChildren(...[...byCompany].map(([id, msgs]) => {
-      const s = logos[id] || {};
-      const name = msgs.find((m) => m.company)?.company || s.name || "Company";
-      return el("article", { class: "thread" },
-        el("div", { class: "thread-head" }, logoEl(name, s.domain, s.logo), el("b", { text: name }),
-          states[id] ? el("span", { class: "state-pill", text: states[id].replace(/_/g, " ") }) : null),
-        msgs.map(messageEl));
-    }));
-    const select = $("#sponsor-company");
-    const keep = select.value;
-    select.replaceChildren(...[...byCompany.keys()].filter((id) => id && !["opted_out", "declined", "meeting_booked"].includes(states[id]))
-      .map((id) => el("option", { value: String(id), text: logos[id]?.name || msgs0(byCompany.get(id)) })));
-    if ([...select.options].some((o) => o.value === keep)) select.value = keep;
-  }
-  show($("#sponsor-box"), sandbox && $("#sponsor-company").options.length > 0);
-}
-
-function msgs0(msgs) { return msgs.find((m) => m.company)?.company || "Company"; }
-
-function messageEl(m) {
-  const incoming = m.direction === "in";
-  const when = m.date ? new Date(m.date) : null;
-  const invite = m.invite_start ? new Date(m.invite_start.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z")) : null;
-  return el("div", { class: `msg ${incoming ? "msg-in" : "msg-out"}` },
-    el("div", { class: "msg-meta" },
-      el("span", {}, el("b", { text: incoming ? m.from : "Sponsor Agent" }), incoming ? " replied" : ` → ${m.to_role || "sponsor"}`),
-      el("span", { text: when && !isNaN(when) ? when.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "" })),
-    el("p", { class: "msg-subject", text: m.subject }),
-    el("p", { class: "msg-body", text: m.body }),
-    invite && !isNaN(invite) ? el("span", { class: "invite", text: `📅 Calendar invite · ${invite.toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}` }) : null);
-}
-
-function drawApproval(pending) {
-  const dialog = $("#approval");
-  if (!pending) {
-    if (dialog.open) dialog.close();
-    state.shownApproval = null;
-    return;
-  }
-  if (state.shownApproval === pending.id) return;
-  state.shownApproval = pending.id;
-  const lines = pending.lines.filter((l) => !/^[=\-\s]*$/.test(l.trim()) && !/^[=\-]{10,}/.test(l.trim()))
-    .map((l) => l.replace(/\[(to|ref):[^\]]*\]\s*/g, ""));        // the tracking tags ride in the subject
-  $("#approval-body").textContent = lines.join("\n").replace(/^\n+/, "");
-  $("#approval-h").textContent = pending.question.replace(/\s*\[y\/N\]\s*$/, "").replace(/ (answer|handoff):\w+/, " $1");
-  if (!dialog.open) dialog.showModal();
->>>>>>> Stashed changes
 }
 
 function drawPipeline(view) {
   const rows = view.pipeline;
   show($("#pipeline"), rows.length > 0);
-<<<<<<< Updated upstream
-=======
-  $("#pipeline-sub").textContent = "Every company's state and why. Negotiation always goes to you.";
->>>>>>> Stashed changes
   $("#board").replaceChildren(...COLUMNS.map((col) => {
     const deals = rows.filter((r) => col.states.includes(r.state));
     return el("div", { class: `column col-${col.key}` },

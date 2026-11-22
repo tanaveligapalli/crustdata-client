@@ -23,7 +23,8 @@ from records import Brief, Candidate
 from src.match import normalise
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
-_FILLER_WORDS = {"brands", "brand", "companies", "company", "products", "sponsors", "industry"}
+_FILLER_WORDS = {"brands", "brand", "companies", "company", "products", "sponsors", "industry",
+                 "competing", "competitor", "competitors", "rival", "rivals"}
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:

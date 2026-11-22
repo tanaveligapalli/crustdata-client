@@ -95,6 +95,12 @@ class FilterTest(unittest.TestCase):
         out = scoring.score(candidate(1, industries=["Banking"]), brief(excluded_categories=["banks"]), CONFIG)
         self.assertIn("Banking", out.excluded_reason)
 
+    def test_competing_and_rival_wordings_match_the_category(self):
+        for wording in ["competing banks", "rival banks"]:
+            out = scoring.score(candidate(1, industries=["Banking"]),
+                                brief(excluded_categories=[wording]), CONFIG)
+            self.assertIn("Banking", out.excluded_reason, wording)
+
     def test_restricted_category_applies_to_every_event(self):
         out = scoring.score(candidate(1, industries=["Tobacco Manufacturing"]), brief(), CONFIG)
         self.assertIn("restricted for every event", out.excluded_reason)

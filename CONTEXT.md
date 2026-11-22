@@ -61,6 +61,8 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `agent_db.py` | Our SQLite tables: ledger, steps, actions. |
 | `ledger.py` | `record(...)` a call, `credits_spent(db, run_id)`. |
 | `steps.py` | `run_step` (a finished step never re-runs) and `do_once` (an action happens at most once). |
+| `brief.py` | Block 4: host's description → `Brief`. Model extracts, code checks every value against the text. |
+| `scoring.py` | Block 4: `score` / `rank` candidates for a `Brief`. Pure code: hard filters, weights from `config.yaml`. |
 | `scripts/capture_fixtures.py` | Saves one real response per endpoint to `tests/fixtures/` (only missing ones). |
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
 
@@ -126,7 +128,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Resolve names with `/company/identify` (`{"names": [...]}`, max 25). No confident match → `cannot_verify`, "no company record matches this brand".
 - **Done when:** the SIDTM post above gives 9 sponsors with roles; ITC Limited and Trainocate resolve; small brands come out `cannot_verify`.
 
-### Block 4 · Brief and scoring
+### Block 4 · Brief and scoring (done)
 - **Files:** `brief.py`, `scoring.py`, `config.yaml` (profiles + weights section).
 - `brief.py`: host's free-text description → `Brief` (model extracts, code validates: profile must be `conference` or `concert`, dates ISO, missing fields `None`).
 - `scoring.py`: `score(candidate, brief, config) -> Candidate`.
@@ -134,6 +136,12 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   - **Unknown signals (`value=None`) are left out and the other weights rescaled**; `confidence` = share of weight that was known.
   - Pure code, no model, no API.
 - **Done when:** two wordings of the same event give the same `Brief` profile and the same ranking; a candidate with half its signals unknown gets confidence 0.5, not a low score.
+- **How to use it (for blocks 3 and 6):**
+  - `brief.make_brief(text, db, run_id, config, call_model)` → `(Brief, dropped)`. `BriefIncomplete.missing` lists what to ask the host (then run again with their answers); `ExtractionFailed` means the model gave no usable JSON twice.
+  - `scoring.rank(candidates, brief, config)` returns every candidate: excluded ones are kept with `excluded_reason` and ranked last.
+  - **A signal counts only if it has a value and at least one verified `Evidence` (with a date).** Without that it's unknown, and a candidate with no known signals gets `score=None`, `confidence=0`.
+  - Signal names must be weight keys in `config.yaml` (`scoring.profiles`); anything else raises `ValueError`, as do values outside 0..1.
+  - **`Candidate.industries`** (new field, default `[]`): fill it from Crustdata `basic_info.industries`. The category filters read it; empty means no category filter applies.
 
 ### Block 6 · Outreach and replies
 - **File:** `outreach.py` (+ an `outreach` section in `config.yaml`).

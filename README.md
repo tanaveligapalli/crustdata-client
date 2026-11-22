@@ -1,5 +1,5 @@
-Demo Link: https://drive.google.com/file/d/1-rXmih5gqk8Lr3tVPzyNBPd0-Fw-kL8u/view?usp=drivesdk
-Site (if needed): moonlit-nasturtium-9ebaf2.netlify.app/
+Demo Link: https://drive.google.com/drive/folders/1elx039-q8ic_6FEl5Tp26PNOUpwPJ7Yh?usp=share_link
+    Site (if needed): moonlit-nasturtium-9ebaf2.netlify.app/
 
 
 # Sponsorship agent for medium-scale events in India

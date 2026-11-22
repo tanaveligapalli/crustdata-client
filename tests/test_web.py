@@ -159,6 +159,20 @@ class JobTests(Base):
         self.assertEqual(self.app().handle("POST", f"/api/runs/{RUN}/send", {}, {"company_ids": []})[0], 400)
 
 
+class BudgetTests(unittest.TestCase):
+    def test_a_budget_stop_says_how_to_continue_not_resume(self):
+        from crustdata_client import BudgetExceeded
+        view = server.error_view(BudgetExceeded("Run x has spent 150 of 150 credits"), 150)
+        self.assertEqual(view["kind"], "budget")            # the page offers no Resume for this kind
+        self.assertIn("higher --credit-limit", view["message"])
+        self.assertIn("150", view["message"])
+
+    def test_the_limit_reaches_the_page_and_the_agent(self):
+        app = server.App(db_path=":memory:", credit_limit=40)
+        self.assertEqual(app.handle("GET", "/api/config", {}, {})[1]["credit_limit"], 40)
+        self.assertEqual(app.workers.credit_limit, 40)
+
+
 class LogoTests(Base):
     class Client:
         def __init__(self):
@@ -194,6 +208,13 @@ class HttpTests(Base):
                 with self.assertRaises(urllib.error.HTTPError) as e:
                     urllib.request.urlopen(base + bad)
                 self.assertEqual(e.exception.code, 404, bad)
+            # A form post from another website (not JSON) is refused before anything runs.
+            form = urllib.request.Request(base + "/api/runs", data=b"description=x", method="POST",
+                                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(form)
+            self.assertEqual(e.exception.code, 415)
+            self.assertEqual(self.workers.calls, [])
         finally:
             httpd.shutdown()
             httpd.server_close()

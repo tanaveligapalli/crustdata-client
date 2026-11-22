@@ -40,7 +40,8 @@ import scoring  # noqa: E402
 from records import Brief, Candidate, Evidence, brief_from_dict, candidate_from_dict  # noqa: E402
 
 SHOWN = 30            # ranked sponsors on the page (and logos looked up)
-CREDIT_LIMIT = 60     # per run; shown next to the Run button
+CREDIT_LIMIT = 150    # per run, like agent.open_agent; --credit-limit changes it. A first university
+                      # or NGO run can pass 60: post pools ~37, alumni up to 40 x 0.23, CSR up to 15 x 2-3.
 FOUND_BY = {
     "past_sponsor": "Sponsored similar events",
     "host_past_sponsor": "Sponsored your past events",
@@ -246,7 +247,8 @@ def fetch_logos(db: sqlite3.Connection, client: Any, company_ids: list[int]) -> 
 class Jobs:
     """What is running right now, and the last error per run. Results live in the database."""
 
-    def __init__(self) -> None:
+    def __init__(self, credit_limit: float = CREDIT_LIMIT) -> None:
+        self.credit_limit = credit_limit
         self.lock = threading.Lock()
         self.running: dict[str, str] = {}     # run_id -> what it's doing, for the page
         self.errors: dict[str, dict] = {}
@@ -266,7 +268,7 @@ class Jobs:
             try:
                 work(say)
             except Exception as e:  # shown on the page; the run can be resumed
-                self.errors[run_id] = error_view(e)
+                self.errors[run_id] = error_view(e, self.credit_limit)
                 traceback.print_exc()
             finally:
                 with self.lock:
@@ -279,7 +281,7 @@ class Jobs:
         return {"running": self.running.get(run_id), "error": self.errors.get(run_id)}
 
 
-def error_view(e: Exception) -> dict[str, Any]:
+def error_view(e: Exception, credit_limit: float = CREDIT_LIMIT) -> dict[str, Any]:
     from brief import BriefIncomplete, ExtractionFailed
     from crustdata_client import BudgetExceeded, NotInCache
 
@@ -291,7 +293,10 @@ def error_view(e: Exception) -> dict[str, Any]:
     if isinstance(e, (agent.NotCached, NotInCache)):
         return {"kind": "not_cached", "message": "This step was never run online, so there's nothing to replay."}
     if isinstance(e, BudgetExceeded):
-        return {"kind": "budget", "message": f"Stopped at the credit limit for this run ({CREDIT_LIMIT})."}
+        # Resuming at the same limit fails at once: the ledger counts what the run spent before.
+        return {"kind": "budget", "message": f"Stopped at this run's limit of {credit_limit:g} credits. To finish it, "
+                "restart the server with a higher --credit-limit and search again: finished steps and "
+                "cached calls cost nothing."}
     if isinstance(e, outreach.OutreachBlocked):
         return {"kind": "blocked", "message": str(e)}
     return {"kind": "error", "message": f"Something went wrong: {type(e).__name__}. Try again; finished steps are kept."}
@@ -303,12 +308,14 @@ def error_view(e: Exception) -> dict[str, Any]:
 class Workers:
     """Each job opens its own agent (and SQLite connections) inside its own thread."""
 
-    def __init__(self, offline: bool, open_agent: Callable[..., Any] = agent.open_agent) -> None:
+    def __init__(self, offline: bool, open_agent: Callable[..., Any] = agent.open_agent,
+                 credit_limit: float = CREDIT_LIMIT) -> None:
         self.offline = offline
         self.open_agent = open_agent
+        self.credit_limit = credit_limit
 
     def _agent(self, description: str):
-        return self.open_agent(description, offline=self.offline, credit_limit=CREDIT_LIMIT)
+        return self.open_agent(description, offline=self.offline, credit_limit=self.credit_limit)
 
     def search(self, description: str, say: Callable[[str], None]) -> None:
         job = self._agent(description)
@@ -370,12 +377,13 @@ def _close(job: Any) -> None:
 
 class App:
     def __init__(self, debug: bool = False, offline: bool = False, db_path: str | Path = agent_db.DEFAULT_PATH,
-                 workers: Workers | None = None) -> None:
+                 workers: Workers | None = None, credit_limit: float = CREDIT_LIMIT) -> None:
         self.debug = debug
         self.offline = offline
         self.db_path = str(db_path)
-        self.jobs = Jobs()
-        self.workers = workers or Workers(offline)
+        self.credit_limit = credit_limit
+        self.jobs = Jobs(credit_limit)
+        self.workers = workers or Workers(offline, credit_limit=credit_limit)
         self.scoring_cfg = scoring.load_config()
 
     def db(self) -> sqlite3.Connection:
@@ -394,7 +402,7 @@ class App:
         try:
             if method == "GET" and parts == ["config"]:
                 return 200, {"debug_available": self.debug, "offline": self.offline,
-                             "credit_limit": CREDIT_LIMIT, "email": email_destination(), "examples": examples()}
+                             "credit_limit": self.credit_limit, "email": email_destination(), "examples": examples()}
             if method == "GET" and parts == ["runs"]:
                 return 200, recent_runs(db)
             if method == "POST" and parts == ["runs"]:
@@ -463,6 +471,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             url = urlparse(self.path)
             if url.path.startswith("/api/"):
                 body = {}
+                if method == "POST" and not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                    # Browsers won't send JSON cross-site without asking, so another website
+                    # open in the same browser can't start a paid search here.
+                    return self._send(415, {"error": "Send JSON"})
                 if method == "POST":
                     length = int(self.headers.get("Content-Length") or 0)
                     try:
@@ -512,8 +524,9 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true", help="allow the debug toggle (weights, scores, costs)")
     parser.add_argument("--offline", action="store_true", help="replay from the cache: no API or model calls")
     parser.add_argument("--db", default=str(agent_db.DEFAULT_PATH), help="the agent's database (default agent.sqlite3)")
+    parser.add_argument("--credit-limit", type=float, default=CREDIT_LIMIT, help=f"credits per run (default {CREDIT_LIMIT})")
     args = parser.parse_args()
-    app = App(debug=args.debug, offline=args.offline, db_path=args.db)
+    app = App(debug=args.debug, offline=args.offline, db_path=args.db, credit_limit=args.credit_limit)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(app))
     mode = ", ".join(m for m, on in (("debug", args.debug), ("replay", args.offline)) if on) or "normal"
     print(f"Sponsor Agent on http://{args.host}:{args.port} ({mode}). Ctrl+C to stop.")

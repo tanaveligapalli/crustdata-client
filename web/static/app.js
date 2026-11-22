@@ -293,7 +293,7 @@ function render(view) {
   show(status, running);
 
   if (job.error) {
-    const canResume = !["incomplete", "unreadable"].includes(job.error.kind) && !sponsorsDone;
+    const canResume = !["incomplete", "unreadable", "budget"].includes(job.error.kind) && !sponsorsDone;
     showAlert(job.error.message, canResume ? resumeButton() : null);
   } else if (!running && view.brief && !sponsorsDone) {
     showAlert("This search stopped before it finished. Finished steps are kept, so resuming costs nothing for them.", resumeButton());

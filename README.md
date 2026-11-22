@@ -37,7 +37,7 @@ The same job as `app.py` with a designed page: describe the event, see the brief
 check, ranked sponsors with company logos and every sourced fact, pick companies, approve each
 pitch, send, and follow the pipeline. Weights, scores, confidence and costs are only sent to the
 browser by a `--debug` server, so start it without `--debug` for anyone who isn't an operator.
-It listens on this machine only; each new search is capped at 60 credits. Logos cost 0.03
+It listens on this machine only; each new search is capped at 150 credits (`--credit-limit` changes it). Logos cost 0.03
 credits per company shown (once; they're cached).
 
 ## The job and who pays for it today

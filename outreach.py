@@ -37,7 +37,7 @@ from typing import Any, Callable
 import ledger
 from agent_db import now_iso
 from records import OUTREACH_STATES, Brief, Candidate, Contact, Evidence
-from steps import ActionNeedsCheck, do_once
+from steps import ActionNeedsCheck, do_once, run_step
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 
@@ -651,7 +651,9 @@ def handle_replies(db: sqlite3.Connection, run_id: str, brief: Brief, config: di
     """Read the team inbox, classify each new reply, and take the next step for that company.
 
     A reply is marked handled only after its step is done, so a crash re-reads it; every
-    email it triggers is do_once, so re-reading never sends twice.
+    email it triggers is do_once, so re-reading never sends twice. Its label is saved the
+    first time (run_step): a second model call could label it differently and send a
+    different email under a different once-only key.
     """
     ensure_tables(db)
     replies = reader()
@@ -670,7 +672,7 @@ def handle_replies(db: sqlite3.Connection, run_id: str, brief: Brief, config: di
             continue
 
         text = new_text(reply.body)
-        state = classify(text, model, db, run_id)
+        state = run_step(db, run_id, f"classify:{reply.message_id}", lambda: classify(text, model, db, run_id))
         key = hashlib.sha256(reply.message_id.encode()).hexdigest()[:10]
         _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, reply, text, state, key)
         db.execute("INSERT OR IGNORE INTO replies_seen VALUES (?, ?, ?, ?, ?)",

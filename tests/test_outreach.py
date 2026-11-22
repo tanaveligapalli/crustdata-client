@@ -185,6 +185,24 @@ class ReplyTests(Base):
         ics = [p for p in self.s.sent[0].iter_attachments()][0].get_content()
         self.assertIn("DTSTART:20261124T093000Z", ics)
 
+    def test_reply_read_again_after_a_crash_is_not_reclassified(self):
+        calls = []
+
+        def fickle(system, user, schema):              # changes its mind on the second read
+            if "Classify" in system:
+                calls.append(user)
+                state = "replied_interested" if len(calls) == 1 else "replied_question"
+                return json.dumps({"state": state}), 0.0
+            return json.dumps({"answerable": True, "answer": "Our audience is startup founders."}), 0.0
+
+        r = reply("<m1>", 1, "Sounds interesting, tell me more")
+        self.replies([r], self.s, fickle)
+        # A crash right after acting but before the reply was marked handled:
+        self.db.execute("DELETE FROM replies_seen WHERE message_id = '<m1>'")
+        self.replies([r], self.s, fickle)
+        self.assertEqual(len(calls), 1)                # labelled once, kept across the restart
+        self.assertEqual(len(self.s.sent), 1)          # one invite, no second (different) email
+
     def test_two_meetings_get_different_slots(self):
         self.replies([reply("<a>", 1, "Interested!"), reply("<b>", 2, "Interested, keen to talk")], self.s)
         slots = [list(m.iter_attachments())[0].get_content() for m in self.s.sent]

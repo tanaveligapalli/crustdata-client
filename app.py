@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
@@ -25,6 +26,7 @@ SIGNAL_LABELS = {"past_sponsorships": "past sponsor", "alumni": "alumni", "csr":
                  "social_presence": "followers", "active_hiring": "hiring", "growth": "growth",
                  "city_presence": "in city"}
 SHOWN = 30  # candidates in the table
+SPONSOR_LEAD_DAYS = 30  # closer than this, warn that sponsors may not have time to approve a budget
 
 st.set_page_config(page_title="Sponsor agent", layout="centered")
 st.markdown("""<style>
@@ -120,6 +122,15 @@ if dropped:
     with st.expander(f"{len(dropped)} detail(s) not used: not found word for word in the description"):
         for d in dropped:
             st.write(f"{d['field']}: {d['value']} ({d['reason']})")
+
+if brief.event_date:
+    days_left = (date.fromisoformat(brief.event_date) - date.today()).days
+    if days_left < 0:
+        st.warning(f"The event date ({brief.event_date}) has already passed. If you meant next year, "
+                   "fix the date in the description.")
+    elif days_left < SPONSOR_LEAD_DAYS:
+        st.warning(f"The event is {days_left} days away. Most companies need longer than that to approve "
+                   "a sponsorship budget.")
 
 if host.status == "verified":
     st.markdown(f"**Host verified.** {host.source_url} names {brief.host_name}.")

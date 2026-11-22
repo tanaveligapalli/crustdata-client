@@ -203,7 +203,7 @@ def linkedin_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, run
         "filters": {"op": "and", "conditions": [
             {"field": "actor.actor_type", "type": "=", "value": "company"},
             *dates,
-            _any_of("text", "[.]", past["sponsor_words"]),
+            _any_of("text", "[.]", past["sponsor_words"][brief.profile]),
             _any_of("text", "[.]", past["event_words"][brief.profile]),
             # Posts by Indian companies, or posts that name the country.
             {"op": "or", "conditions": [

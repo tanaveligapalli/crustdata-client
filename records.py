@@ -73,7 +73,7 @@ class Brief:
     """The event, structured from the host's description (block 4)."""
 
     event_name: str
-    profile: str                # "conference" or "concert": picks the weights in config.yaml
+    profile: str                # "conference", "concert" or "social": picks where to search for sponsors
     event_date: str | None      # ISO date
     city: str | None
     audience_size: int | None

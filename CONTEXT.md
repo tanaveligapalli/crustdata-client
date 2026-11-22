@@ -240,12 +240,23 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - **Known limit:** `past_sponsorships` counts any similar-type event, so sponsors of a smart-meter summit rank for a fintech one. Fixing this needs `audience_fit` (still open).
 - **Not built (no data on our plan):** marketing methods. Userbase is approximated by LinkedIn followers (`social_presence`).
 
+### Social events: health camps, drives (done)
+- Third event profile `social`: health/medical/eye/dental camps, blood donation and other drives, fundraisers (`brief.profile_keywords`). It searches LinkedIn posts with "health camp", "medical camp", "blood donation camp" plus sponsor **or CSR** words, and companies in health care, pharma, diagnostics, insurance and banking.
+- Free counts (India, 12 months): 235 / 112 / 441 matching posts, more than concerts.
+- Host type: the prompt now copies only what the host itself is ("an NGO at BITS Pilani University" → "an NGO"), so it no longer matches both NGO and university.
+- The screen warns when the event date has passed or is under 30 days away (sponsors need time to approve a budget).
+- **Live (22 Nov), PARC Health Camp (`demo/parc_health_camp.txt`, the team's own description):**
+  - Brief: social + NGO; host verified (atmanirbhar.org names PARC).
+  - 55 candidates, 74.9 credits + $0.26, 5 min.
+  - Top: RBL Bank, Sahyadri Hospitals (CSR verified), Apollo Tyres, Exide, Paras Health, ABB: all sourced health-camp sponsors.
+  - The date given (30 Oct 2026) has already passed, so the screen warns.
+
 ### Block 4 · Brief and scoring (done, 2 open issues)
 - **Live check (22 Nov):** two wordings of the same summit gave the same profile, city, date, size, tiers and sponsors, and the same ranking (excluded categories came back in a different order only).
 - **Open issue 1: excluded categories that aren't industries do nothing.** "competing payment companies" becomes the key "payment", but Crustdata industries say "Financial Services", so no payments company is excluded and nobody is told. Either flag unmatched categories for a person, or match them against something richer than industries.
 - ~~Open issue 2: ranking~~ fixed: ranked by evidence score with past sponsorships weighted most (see "Company signals").
 - **Files:** `brief.py`, `scoring.py`, `config.yaml` (profiles + weights section).
-- `brief.py`: host's free-text description → `Brief` (model extracts, code validates: profile must be `conference` or `concert`, dates ISO, missing fields `None`).
+- `brief.py`: host's free-text description → `Brief` (model extracts, code validates: profile must be `conference`, `concert` or `social`, dates ISO, missing fields `None`).
 - `scoring.py`: `score(candidate, brief, config) -> Candidate`.
   - Hard filters first; set `excluded_reason`, keep the candidate.
   - **Unknown signals (`value=None`) are left out and the other weights rescaled**; `confidence` = share of weight that was known.

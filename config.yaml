@@ -24,6 +24,9 @@ brief:                       # block 4: host's description -> Brief
   profile_keywords:
     conference: [conference, summit, conclave, symposium, expo, forum, convention, hackathon, meetup, tech fest]
     concert: [concert, music festival, music fest, gig, live music, dj night, edm]
+    # Community health and social-cause events, funded mostly from CSR budgets.
+    social: [health camp, medical camp, eye camp, dental camp, blood donation, donation drive,
+             awareness drive, cleanliness drive, plantation drive, fundraiser, charity drive]
   # The host type picks the scoring weights. Decided the same way, from the words describing the host.
   host_type_keywords:
     university: [university, college, institute, iit, iim, nit, bits, school of]
@@ -118,11 +121,17 @@ candidates:                  # block 3: candidate pools
     limit: 100               # job postings, ~0.03 credits each
   past_sponsors:
     days: 365
-    sponsor_words: [sponsor, sponsors, sponsored, sponsorship]
+    sponsor_words:           # per profile: social events are often funded as CSR, not "sponsored"
+      conference: [sponsor, sponsors, sponsored, sponsorship]
+      concert: [sponsor, sponsors, sponsored, sponsorship]
+      social: [sponsor, sponsors, sponsored, sponsorship, CSR, supported by]
     not_sponsor_roles: [venue, media]   # block 3b roles that don't pay, so don't count
     event_words:
       conference: [conference, summit]
       concert: [concert, music festival]
+      # Free counts, India, last 12 months, company posts with sponsor/CSR/partner words (22 Nov):
+      # "health camp" 235, "medical camp" 112, "blood donation camp" 441.
+      social: [health camp, medical camp, blood donation camp]
     linkedin_posts: 20       # 0.5 credits each, plus one model call each
     instagram_posts: 5       # 1 credit each to fetch, plus one model call each
   company_search:
@@ -131,6 +140,7 @@ candidates:                  # block 3: candidate pools
     industries:              # exact Crustdata values (checked with company autocomplete)
       conference: [Software Development, IT Services and IT Consulting, Financial Services, Banking, Telecommunications]
       concert: [Food and Beverage Services, Food and Beverage Manufacturing, Beverage Manufacturing, Retail Apparel and Fashion, Consumer Electronics, Telecommunications, Entertainment Providers]
+      social: [Hospitals and Health Care, Pharmaceutical Manufacturing, Medical Equipment Manufacturing, Medical and Diagnostic Laboratories, Insurance, Banking]
 
 outreach:                    # block 6: outreach and replies
   # Every email goes to the team inbox; the real target is only named in the subject.

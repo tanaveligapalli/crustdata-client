@@ -125,6 +125,15 @@ class BriefTest(unittest.TestCase):
                                             host_type_quote="music club"))
         self.assertEqual((b.profile, b.host_type), ("concert", "community"))
 
+    def test_health_camp_by_an_ngo_at_a_university(self):
+        text = ("PARC is an NGO at BITS Pilani University. We are hosting a health camp in Pilani "
+                "for 10,000 people. Event name: PARC Health Camp.")
+        config = {**CONFIG, "profile_keywords": {**CONFIG["profile_keywords"], "social": ["health camp"]}}
+        b, _ = brief.make_brief(text, self.db, "test", config, FakeModel(model_output(
+            event_name="PARC Health Camp", event_type_quote="a health camp", audience="10,000 people",
+            host_name="PARC", host_type_quote="an NGO")))
+        self.assertEqual((b.profile, b.host_type), ("social", "ngo"))
+
     def test_two_wordings_give_the_same_host_type(self):
         a, _ = self.make(WORDING_A, model_output(event_type_quote="tech summit", audience="startup founders"))
         b, _ = self.make(WORDING_B, model_output(event_type_quote="a tech conference", audience="startup founders"))
@@ -167,10 +176,20 @@ class ParseAmountTest(unittest.TestCase):
 
 
 class RealConfigTest(unittest.TestCase):
-    def test_profile_keywords_cover_both_profiles_without_overlap(self):
+    def test_profile_keywords_cover_every_profile_without_overlap(self):
         keywords = brief.load_config()["profile_keywords"]
-        self.assertEqual(set(keywords), {"conference", "concert"})
-        self.assertFalse(set(keywords["conference"]) & set(keywords["concert"]))
+        self.assertEqual(set(keywords), {"conference", "concert", "social"})
+        words = [w for kind in keywords.values() for w in kind]
+        self.assertEqual(len(words), len(set(words)))
+
+    def test_every_profile_has_somewhere_to_search(self):
+        import candidates
+
+        cfg = candidates.load_config()
+        profiles = set(brief.load_config()["profile_keywords"])
+        for section in (cfg["past_sponsors"]["event_words"], cfg["past_sponsors"]["sponsor_words"],
+                        cfg["company_search"]["industries"]):
+            self.assertEqual(set(section), profiles)
 
     def test_host_type_keywords_match_the_weight_tables_without_overlap(self):
         keywords = brief.load_config()["host_type_keywords"]

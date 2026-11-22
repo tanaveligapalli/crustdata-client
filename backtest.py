@@ -2,11 +2,12 @@
 
 Past events come from verified past-sponsor facts (block 3's post pools, read from the
 evidence ledger). For each event with enough resolved sponsors:
-  - every company in the data is a candidate; the event's own sponsors are the answers;
+  - the candidates are its own sponsors (the answers) plus the sponsors of other events
+    whose cutoff is the same or later (see "Who is compared" below);
   - signals are rebuilt with block 3's own merge, from facts dated before the event's
     cutoff only, and never from facts about the event itself;
   - candidates are ranked with block 4's scoring.rank, and we measure how often a real
-    sponsor sits above a non-sponsor.
+    sponsor sits above a non-sponsor (AUC: ties count half, 50% = chance).
 
 What this can and can't test: at any past cutoff the only signal we can know is
 `past_sponsorships` (job facts are from the last 30 days; city facts belong to another
@@ -21,8 +22,17 @@ their event dates overlap. So "Alpha Summit 2025" is history for "Alpha Summit 2
 "Alpha Summit" (no year) is not. When unsure, a fact is left out of the history: a score
 that's too low is safer than a pass mark that's too high.
 
-Only non-sponsors with a known score count. One with no history can never outrank anyone,
-so pairs against it would only restate how many sponsors have history, not ranking skill.
+Who is compared: a company is in the data only because some post names it as a sponsor.
+A company whose only post is older than the event would have "history" just for being in
+the data, while the event's real sponsors only have history if they sponsored twice; with
+sparse data every real sponsor would lose (a trial run gave 0% this way). So non-sponsors
+are only companies that sponsor some other event at or after the cutoff: for them and for
+the real sponsors alike, history before the cutoff means sponsoring more than once. With
+no repeat sponsors in the data everything ties (50%), and the report says "cannot verify".
+
+The limit: this compares repeat sponsors with companies that sponsor other, later events,
+not with typical companies that never sponsor. That needs a candidate list that doesn't
+depend on the timeline (e.g. company search in the profile's industries), at extra cost.
 """
 
 from __future__ import annotations
@@ -199,38 +209,61 @@ def history_hits(event: PastEvent, facts: list[tuple[int, Evidence]]) -> list[Hi
 # -- one event ----------------------------------------------------------------
 
 
-def rank_as_of(event: PastEvent, facts: list[tuple[int, Evidence]], universe: dict[int, str],
+def pool_for(event: PastEvent, events: list[PastEvent]) -> dict[int, str]:
+    """The event's sponsors, plus sponsors of other events at or after its cutoff."""
+    pool = dict(event.sponsors)
+    for other in events:
+        if other is not event and other.cutoff >= event.cutoff:
+            for company_id, name in other.sponsors.items():
+                pool.setdefault(company_id, name)
+    return pool
+
+
+def rank_as_of(event: PastEvent, facts: list[tuple[int, Evidence]], pool: dict[int, str],
                profile: str, candidates_cfg: dict[str, Any], scoring_cfg: dict[str, Any]):
-    """Every company in the data, scored with only what was known before the event."""
+    """The pool's companies, scored with only what was known before the event."""
     # No real host: for a post written by a sponsor, the "organizer" is that sponsor, and
     # merge would drop it as the host. This name can't match a company.
     brief = Brief(event_name=event.label, profile=profile, event_date=event.cutoff, city=None,
                   audience_size=None, audience="", host_name="(back-test: no host)", host_website=None)
-    hits = [Hit(cid, name, "backtest") for cid, name in universe.items()]
-    candidates = merge(hits + history_hits(event, facts), brief, candidates_cfg)
+    hits = [Hit(cid, name or f"company {cid}", "backtest") for cid, name in pool.items()]
+    history = [h for h in history_hits(event, facts) if h.company_id in pool]
+    candidates = merge(hits + history, brief, candidates_cfg)
     return scoring.rank(candidates, brief, scoring_cfg)
 
 
 def measure(ranked, sponsors: set[int], top_k: int) -> dict[str, Any]:
-    """Pairwise against non-sponsors with a known score: a sponsor above one wins, a tie
-    counts half (AUC). A sponsor with no score (None) is below every known one, as in
-    scoring.rank, so missing history counts against us."""
+    """Every sponsor against every non-sponsor: above wins, a tie counts half (AUC).
+    No score (None) is below every known one, as in scoring.rank."""
     key = {c.company_id: (c.score if c.score is not None else -1.0) for c in ranked}
     pos = [key[c] for c in key if c in sponsors]
-    neg_all = [key[c] for c in key if c not in sponsors]
-    neg = [n for n in neg_all if n >= 0]
+    neg = [key[c] for c in key if c not in sponsors]
     wins = sum(1.0 if p > n else 0.5 if p == n else 0.0 for p in pos for n in neg)
     decided = sum(p != n for p in pos for n in neg)
-    top = {c.company_id for c in ranked[:top_k]}
     return {
-        "sponsors": len(pos), "non_sponsors": len(neg_all), "non_sponsors_known": len(neg),
+        "sponsors": len(pos), "non_sponsors": len(neg), "non_sponsors_known": sum(n >= 0 for n in neg),
         "pairs": len(pos) * len(neg),
         "wins": wins, "decided": decided,
         "auc": wins / (len(pos) * len(neg)) if pos and neg else None,
         "sponsors_known": sum(p >= 0 for p in pos),
         # With k or fewer candidates every sponsor is in the top k: that says nothing.
-        "recall_at_k": len(top & sponsors) / len(pos) if pos and len(ranked) > top_k else None,
+        "recall_at_k": expected_in_top(key, sponsors, top_k) / len(pos) if pos and len(ranked) > top_k else None,
     }
+
+
+def expected_in_top(key: dict[int, float], sponsors: set[int], k: int) -> float:
+    """Sponsors expected in the top k when ties are broken at random. scoring.rank breaks ties
+    by company ID, which says nothing about the event, so a tied group straddling place k
+    counts each of its sponsors as the share of the remaining places."""
+    found, slots = 0.0, k
+    for score in sorted(set(key.values()), reverse=True):
+        group = [c for c, s in key.items() if s == score]
+        in_group = len([c for c in group if c in sponsors])
+        if len(group) <= slots:
+            found, slots = found + in_group, slots - len(group)
+        else:
+            return found + in_group * slots / len(group)
+    return found
 
 
 # -- the whole back-test ------------------------------------------------------
@@ -238,25 +271,22 @@ def measure(ranked, sponsors: set[int], top_k: int) -> dict[str, Any]:
 
 def run(facts: list[tuple[int, Evidence]], profile: str, cfg: dict[str, Any],
         candidates_cfg: dict[str, Any], scoring_cfg: dict[str, Any]) -> dict[str, Any]:
-    universe: dict[int, str] = {}
-    for cid, f in facts:
-        name = f.value.get("sponsor_name_as_written") if isinstance(f.value, dict) else None
-        universe.setdefault(cid, name or f"company {cid}")
-
     events = past_events(facts)
     tested = [e for e in events if len(e.sponsors) >= cfg["min_sponsors"]]
     rows = []
     for e in tested:
-        ranked = rank_as_of(e, facts, universe, profile, candidates_cfg, scoring_cfg)
+        ranked = rank_as_of(e, facts, pool_for(e, events), profile, candidates_cfg, scoring_cfg)
         rows.append({"event": e.label, "cutoff": e.cutoff,
                      **measure(ranked, set(e.sponsors), cfg["top_k"])})
     rows = [r for r in rows if r["pairs"]]
 
     pairs = sum(r["pairs"] for r in rows)
     sponsors = sum(r["sponsors"] for r in rows)
+    sponsors_known = sum(r["sponsors_known"] for r in rows)
     total = {
         "events_found": len(events), "events_tested": len(rows), "sponsors": sponsors,
-        "sponsors_known_share": sum(r["sponsors_known"] for r in rows) / sponsors if sponsors else None,
+        "sponsors_known": sponsors_known,
+        "sponsors_known_share": sponsors_known / sponsors if sponsors else None,
         "decided_share": sum(r["decided"] for r in rows) / pairs if pairs else None,
         "auc": sum(r["wins"] for r in rows) / pairs if pairs else None,
         "mean_recall_at_k": _mean([r["recall_at_k"] for r in rows if r["recall_at_k"] is not None]),
@@ -265,7 +295,10 @@ def run(facts: list[tuple[int, Evidence]], profile: str, cfg: dict[str, Any],
     missing = []
     if len(rows) < cfg["min_events"]:
         missing.append(f"only {len(rows)} testable events (need {cfg['min_events']}, each with "
-                       f"{cfg['min_sponsors']}+ resolved sponsors and a non-sponsor with earlier sponsorships)")
+                       f"{cfg['min_sponsors']}+ resolved sponsors and another event at or after it)")
+    if sponsors_known < cfg["min_sponsors_with_history"]:
+        missing.append(f"only {sponsors_known} of {sponsors} real sponsors had sponsored anything earlier in "
+                       f"the data (need {cfg['min_sponsors_with_history']}): too few repeat sponsors to test")
     if total["decided_share"] is not None and total["decided_share"] < cfg["min_decided_share"]:
         missing.append(f"only {total['decided_share']:.0%} of sponsor/non-sponsor pairs were decided "
                        f"(need {cfg['min_decided_share']:.0%}): most companies have no sponsorship "
@@ -294,11 +327,12 @@ def report(result: dict[str, Any]) -> str:
 
     lines += [
         f"- Events found: {t['events_found']}, tested: {t['events_tested']}, sponsors: {t['sponsors']}",
-        f"- Sponsors with any known signal before their event: {pct(t['sponsors_known_share'])}",
+        f"- Real sponsors with an earlier sponsorship in the data: {t['sponsors_known']} ({pct(t['sponsors_known_share'])})",
         f"- Pairs decided (not tied): {pct(t['decided_share'])}",
         f"- AUC: {pct(t['auc'])} · mean recall in top {t['top_k']}: {pct(t['mean_recall_at_k'])}",
         "- Only `past_sponsorships` can be known at a past date, so this tests that signal, not the weights.",
-        "- Compared only against non-sponsors with earlier sponsorships; ones with none can't outrank anyone.",
+        "- Non-sponsors are companies that sponsor other events at or after the cutoff, so this compares "
+        "repeat sponsors with later sponsors, not with companies that never sponsor.",
         "", "| Event | Cutoff | Sponsors | With history | Non-sponsors | With history | AUC | Recall@k |",
         "|---|---|---|---|---|---|---|---|",
     ]

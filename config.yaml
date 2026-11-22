@@ -126,3 +126,5 @@ backtest:                    # block 5: do past events' real sponsors rank above
   # Below them the report says "cannot verify" and what's missing.
   min_events: 5
   min_decided_share: 0.2     # share of sponsor/non-sponsor pairs not tied (mostly ties = no signal)
+  min_sponsors_with_history: 10   # real sponsors with an earlier sponsorship in the data (added after
+                                  # a trial where 0 of 76 had one: no repeats means nothing to test)

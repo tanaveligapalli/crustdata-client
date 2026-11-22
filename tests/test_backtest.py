@@ -15,7 +15,7 @@ from records import Evidence  # noqa: E402
 from tests.test_scoring import CONFIG as SCORING_CONFIG  # noqa: E402
 
 CANDIDATES_CFG = {"signals_full_at": {"past_sponsorships": 2, "active_hiring": 3, "city_presence": 1}}
-CFG = {"min_sponsors": 2, "top_k": 2, "min_events": 5, "min_decided_share": 0.2}
+CFG = {"min_sponsors": 2, "top_k": 2, "min_events": 5, "min_decided_share": 0.2, "min_sponsors_with_history": 1}
 
 
 def sponsor(company_id, event_name, posted, event_dates=(), organizer="organizer", name=None,
@@ -106,18 +106,26 @@ class LeakageTest(unittest.TestCase):
 
 
 class MeasureTest(unittest.TestCase):
-    def test_only_non_sponsors_with_history_are_compared(self):
+    def test_every_pair_counts_and_ties_count_half(self):
         from records import Candidate
         ranked = [Candidate(1, "a", None, score=0.5), Candidate(2, "b", None, score=0.5),
                   Candidate(3, "c", None, score=None), Candidate(4, "d", None, score=None)]
         m = backtest.measure(ranked, sponsors={1, 3}, top_k=1)
-        # Non-sponsor 4 has no score: left out. Pairs: 1=2 tie, 3<2 loss -> (.5 + 0) / 2
-        self.assertEqual((m["pairs"], m["non_sponsors"], m["non_sponsors_known"]), (2, 2, 1))
-        self.assertEqual(m["auc"], 0.25)
-        self.assertEqual(m["decided"], 1)
+        # pairs: 1=2 tie, 1>4 win, 3<2 loss, 3=4 tie -> (.5 + 1 + 0 + .5) / 4
+        self.assertEqual((m["pairs"], m["non_sponsors"], m["non_sponsors_known"]), (4, 2, 1))
+        self.assertEqual(m["auc"], 0.5)
+        self.assertEqual(m["decided"], 2)
         self.assertEqual(m["sponsors_known"], 1)
-        self.assertEqual(m["recall_at_k"], 0.5)
+        # 1 and 2 tie for the single top place: sponsor 1 is there half the time, of 2 sponsors.
+        self.assertEqual(m["recall_at_k"], 0.25)
         self.assertIsNone(backtest.measure(ranked, sponsors={1, 3}, top_k=4)["recall_at_k"])
+
+    def test_recall_counts_a_tied_group_by_its_share_of_the_places(self):
+        from records import Candidate
+        # All tied: the top 2 of 4 hold each company with chance 1/2, whatever the IDs.
+        tied = [Candidate(i, "x", None, score=None) for i in (1, 2, 3, 4)]
+        self.assertEqual(backtest.measure(tied, sponsors={1, 2}, top_k=2)["recall_at_k"], 0.5)
+        self.assertEqual(backtest.measure(tied, sponsors={3, 4}, top_k=2)["recall_at_k"], 0.5)
 
 
 NAMES = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
@@ -129,42 +137,72 @@ def monthly(companies, months=NAMES):
             for i, n in enumerate(months) for c in companies]
 
 
+def solo_expos(months=NAMES):
+    """One new company a month sponsors a one-sponsor expo (too small to test, but a later sponsor)."""
+    return [sponsor(100 + i, f"Solo{n} Expo 2026", f"2026-0{i + 1}-20T08:00:00Z", organizer=f"solo-{n}")
+            for i, n in enumerate(months)]
+
+
+class PoolTest(unittest.TestCase):
+    def test_company_known_only_before_the_cutoff_is_not_compared(self):
+        facts = monthly([1, 2], NAMES[:2]) + [sponsor(50, "Old Expo 2025", "2025-06-01T08:00:00Z")] + solo_expos()
+        events = backtest.past_events(facts)
+        beta = next(e for e in events if "beta summit 2026" in {n for n, _ in e.names} or
+                    any(n[0] == "beta" for n in e.names))
+        pool = backtest.pool_for(beta, events)
+        self.assertNotIn(50, pool)          # only sponsored before Beta: it would have "history" for free
+        self.assertNotIn(100, pool)         # SoloAlpha expo is before Beta's cutoff
+        self.assertIn(101, pool)            # SoloBeta expo is after it
+        self.assertEqual({1, 2} & set(pool), {1, 2})
+
+
 class RunTest(unittest.TestCase):
-    def test_repeat_sponsors_rank_above_one_time_sponsors(self):
-        # 1 and 2 sponsor every month; 5 and 6 sponsored once, in December; 3 and 4 only post jobs.
-        facts = monthly([1, 2]) + [sponsor(c, "Omega Expo 2025", "2025-12-15T08:00:00Z", organizer="org-omega")
-                                   for c in (5, 6)] + [job(3), job(4)]
-        result = run(facts)
+    def test_repeat_sponsors_rank_above_later_one_time_sponsors(self):
+        # 1 and 2 sponsor every month; one new company a month sponsors a solo expo.
+        result = backtest.run(monthly([1, 2]) + solo_expos(), "conference", {**CFG, "min_sponsors_with_history": 5},
+                              CANDIDATES_CFG, SCORING_CONFIG)
         t = result["total"]
-        # Omega has no non-sponsor with history: not tested. Against 5 and 6 (one sponsorship each):
-        # Alpha 0/4 (no history yet), Beta 2/4 (ties), Gamma..Zeta 4/4 each.
-        self.assertEqual((t["events_found"], t["events_tested"], t["sponsors"]), (7, 6, 12))
-        self.assertAlmostEqual(t["auc"], 18 / 24)
-        self.assertAlmostEqual(t["decided_share"], 20 / 24)
+        # Month m compares 1 and 2 against the 6 - m solo sponsors from month m on. In January
+        # nobody has history (12 ties); after that 1 and 2 always have it and the solo ones don't.
+        self.assertEqual((t["events_found"], t["events_tested"], t["sponsors"], t["sponsors_known"]), (12, 6, 12, 10))
+        self.assertAlmostEqual(t["auc"], 36 / 42)
+        self.assertAlmostEqual(t["decided_share"], 30 / 42)
         self.assertEqual(t["status"], "verified")
-        self.assertIn("ranked above a non-sponsor 75%", backtest.report(result))
+        self.assertIn("ranked above a non-sponsor 86%", backtest.report(result))
 
-    def test_non_sponsors_with_no_history_alone_cannot_verify(self):
-        # Without 5 and 6 the only non-sponsors only post jobs: nothing can be measured.
-        t = run(monthly([1, 2]) + [job(3), job(4)])["total"]
-        self.assertEqual((t["events_tested"], t["status"]), (0, "cannot_verify"))
-        self.assertIn("only 0 testable events", t["missing"])
-
-    def test_one_off_sponsors_rank_below_earlier_sponsors_so_the_test_can_fail(self):
-        # Each event has new sponsors; earlier events' sponsors are its non-sponsors with history.
+    def test_nobody_sponsors_twice_gives_chance_and_cannot_verify(self):
+        # Like the 5-posts-a-month trial: every company sponsors exactly once. Never below 50%.
         facts = [sponsor(10 * i + c, f"Event{i} Summit 2026", f"2026-0{i + 1}-15T08:00:00Z", organizer=f"org-{i}")
                  for i in range(7) for c in (1, 2)]
         t = run(facts)["total"]
-        self.assertEqual((t["events_tested"], t["status"]), (6, "verified"))
-        self.assertEqual(t["auc"], 0)
+        self.assertEqual(t["auc"], 0.5)
+        self.assertEqual(t["sponsors_known"], 0)
+        self.assertEqual(t["status"], "cannot_verify")
+        self.assertIn("0 of 12 real sponsors had sponsored anything earlier", t["missing"])
+
+    def test_one_time_sponsors_against_repeat_sponsors_score_low_so_the_test_can_fail(self):
+        # Company 1 alone sponsors a summit every month (too small to test); each tested forum
+        # has two new sponsors, so a non-sponsor with history (1) outranks every real sponsor.
+        facts = monthly([1]) + [sponsor(200 + 10 * i + c, f"Other{i} Forum 2026", f"2026-0{i + 1}-10T08:00:00Z",
+                                        organizer=f"other-{i}") for i in range(6) for c in (1, 2)]
+        t = backtest.run(facts, "conference", {**CFG, "min_sponsors_with_history": 0},
+                         CANDIDATES_CFG, SCORING_CONFIG)["total"]
+        self.assertLess(t["auc"], 0.5)
+
+    def test_too_few_events_cannot_verify(self):
+        t = run(monthly([1, 2], NAMES[:2]) + solo_expos(NAMES[:2]))["total"]
+        self.assertEqual(t["status"], "cannot_verify")
+        self.assertIn("only 2 testable events", t["missing"])
 
     def test_mostly_ties_cannot_verify(self):
         # Everyone sponsored the December expo, and one fact makes the signal full: every pair ties.
-        facts = monthly([1, 2], NAMES[:5]) + [sponsor(c, "Omega Expo 2025", "2025-12-15T08:00:00Z")
-                                               for c in (1, 2, 5, 6)]
-        t = backtest.run(facts, "conference", CFG, {"signals_full_at": {"past_sponsorships": 1}},
-                         SCORING_CONFIG)["total"]
-        self.assertEqual(t["events_tested"], 5)
+        facts = monthly([1, 2, 5, 6], NAMES[:5]) + [sponsor(c, "Omega Expo 2025", "2025-12-15T08:00:00Z")
+                                                    for c in (1, 2, 5, 6)]
+        facts = [f for f in facts if not (f[0] in (5, 6) and "Summit" in f[1].value["event_name"])] + \
+            [sponsor(c, f"Late{n} Forum 2026", f"2026-0{i + 1}-16T08:00:00Z", organizer=f"late-{n}")
+             for i, n in enumerate(NAMES[:5]) for c in (5, 6)]
+        t = backtest.run(facts, "conference", {**CFG, "min_sponsors_with_history": 0},
+                         {"signals_full_at": {"past_sponsorships": 1}}, SCORING_CONFIG)["total"]
         self.assertEqual(t["decided_share"], 0)
         self.assertEqual(t["status"], "cannot_verify")
         self.assertIn("pairs were decided", t["missing"])
@@ -218,7 +256,7 @@ class LoadTest(unittest.TestCase):
 
     def test_real_config_has_the_keys(self):
         self.assertEqual(set(backtest.load_config()),
-                         {"min_sponsors", "top_k", "min_events", "min_decided_share"})
+                         {"min_sponsors", "top_k", "min_events", "min_decided_share", "min_sponsors_with_history"})
 
 
 if __name__ == "__main__":

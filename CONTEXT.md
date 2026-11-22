@@ -71,6 +71,7 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `scripts/capture_fixtures.py` | Saves one real response per endpoint to `tests/fixtures/` (only missing ones). |
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
 | `scripts/instagram_sponsor_summary.py` | Runs block 3b on every cached Instagram post and prints what resolved. |
+| `backtest.py`, `scripts/backtest.py` | Block 5: do past events' real sponsors rank above non-sponsors, using only facts from before each event? |
 
 ### Using the client
 ```python
@@ -166,7 +167,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | 6 · Outreach and replies | Built, offline tests; live team-inbox run not done | `outreach.py` |
 | End-to-end run (one command, brief → meetings) | **Open** | — |
 | Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
-| 5 · Back-test of the weights | **Open** | — |
+| 5 · Back-test | Built, offline tests; **needs a live run with post data spread over months** | `backtest.py`, `scripts/backtest.py` |
 | 7 · Hard cases + kill test | **Open** (some covered by unit tests) | — |
 | README, diagram, business case, video | **Open** | — |
 
@@ -260,8 +261,15 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - `audience_fit`: compare the brief's audience with who the company sells to. It must stay decided by code and sourced, or be left unknown.
 - `reachable_contact`: 1.0 when `outreach.find_contact` finds a sourced contact, unknown otherwise.
 
-### Open: back-test (block 5) and hard cases (block 7)
-- Back-test: past events from the LinkedIn posts (block 3 already finds their sponsors). Check that real sponsors rank above non-sponsors, using only signals from before each event's date where possible. Result = the README pass mark.
+### Block 5 · Back-test (built; result still open)
+- **Run:** `python scripts/backtest.py RUN_ID [RUN_ID ...] [--profile conference] [--out reports/backtest.md]`. It reads past-sponsor facts that `candidates.find_candidates` saved to the evidence ledger (post pools on). No API or model calls.
+- **How:** sponsor facts are grouped into past events. For each event with 2+ resolved sponsors, every company in the data is a candidate, signals are rebuilt with block 3's `merge` from facts dated **before the event's cutoff** (the earlier of its stated date and its first post), and `scoring.rank` orders them. Measured: AUC (how often a real sponsor beats a non-sponsor; ties count half; 50% = chance) and recall in the top k.
+- **Leakage guard:** a fact about the same event under another name ("BRICS" vs "BRICS Conference 2026"), or with overlapping event dates, never counts as history. Facts with no event name and no date are left out.
+- **What it tests:** only `past_sponsorships` can be known at a past date (job facts are from the last 30 days; city facts belong to another brief; the other signals aren't built). So it answers "do past sponsorships predict the next one?", **not** how to weight signals (including block 3's confidence-weighting question).
+- **"Cannot verify" floors** (`backtest` in `config.yaml`, set before any result): fewer than 5 testable events, or under 20% of sponsor/non-sponsor pairs decided, prints "cannot verify" and what's missing instead of a number.
+- **Still to do:** a live run. One block 3 run (20 recent posts, a few weeks) will mostly come out "cannot verify": sponsors need a sponsorship dated before their event. Posts spread over the year are needed (more credits and model calls; the post search has no tested upper date bound yet).
+
+### Open: hard cases (block 7)
 - Hard cases still without a test: a company in the middle of layoffs, a contact who has left the company, a full kill-and-restart of the end-to-end run. Already covered: two names for one company (block 3 merge), an existing sponsor and category conflicts (scoring), logo-only posts (3b), a source timeout (client + `failed_pools`).
 
 ### README, diagram, business case (no code)

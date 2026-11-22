@@ -1,5 +1,5 @@
 """Extract handle, caption and date fields from an Instagram post or reel page
-returned by Crustdata web fetch (/web/enrich/live, human_mode true).
+returned by Crustdata web fetch (/web/enrich/live).
 
 Only uses fields seen in fetched pages (see tests/fixtures/web_fetch.json).
 The post data lives in a <script type="application/json"> block under
@@ -25,9 +25,6 @@ HTML, no tag is chosen. A disagreement with taken_at of more than
 TIME_TOLERANCE_SECONDS sets time_disagrees to True. In the pages surveyed,
 every disagreement was on a post with caption_is_edited true, where the
 caption's <time> tag equalled caption.created_at (the edit time).
-
-The fixture has no ``datePublished`` or ``uploadDate`` key. The parser still
-looks for them anywhere in the page's JSON and returns None if absent.
 
 Commenter names are never returned; only comment_count.
 """
@@ -115,7 +112,6 @@ def parse_post(html: str, url: str | None = None) -> dict[str, Any]:
     media_objects: list[dict[str, Any]] = []
     gate_seen = False
     gate_has_media = False
-    extra: dict[str, Any] = {"datePublished": None, "uploadDate": None}
     for block in _json_blocks(html):
         for d in _walk(block):
             if _is_media(d):
@@ -124,9 +120,6 @@ def parse_post(html: str, url: str | None = None) -> dict[str, Any]:
                 gate_seen = True
                 if isinstance(d[_GATE_KEY], dict) and _is_media(d[_GATE_KEY]):
                     gate_has_media = True
-            for key in ("datePublished", "uploadDate"):
-                if extra[key] is None and key in d:
-                    extra[key] = d[key]
 
     media = next((m for m in media_objects if shortcode is None or m.get("code") == shortcode), None)
     if media is not None:
@@ -165,7 +158,6 @@ def parse_post(html: str, url: str | None = None) -> dict[str, Any]:
         "time_tag": time_tag,
         "time_delta_seconds": delta,
         "time_disagrees": None if delta is None else delta > TIME_TOLERANCE_SECONDS,
-        **extra,
     }
 
 

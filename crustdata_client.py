@@ -7,8 +7,8 @@ Every request goes through ``CrustdataClient.call``:
      returns the stored response with no network call and no rate-limit cost.
      It keeps the date it was first retrieved, so facts are never re-dated.
   3. With ``offline=True`` a miss raises NotInCache instead of calling the API.
-  4. On a miss, the run's credit limit is checked, /web/* calls wait on a
-     10-requests-per-minute limiter, the API is called, 429s, 5xx errors and
+  4. On a miss, the run's credit limit is checked, the call waits on its
+     endpoint's per-minute rate limit, the API is called, 429s, 5xx errors and
      network failures are retried with backoff, and 2xx responses are cached.
   5. Every call, cached or not, is written to the cost ledger.
 
@@ -30,9 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import random
 import sqlite3
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -49,9 +47,18 @@ API_VERSION = "2025-11-01"
 API_KEY_ENV = "CRUSTDATA_API_KEY"
 DEFAULT_CACHE_PATH = Path(__file__).resolve().parent / ".crustdata_cache.sqlite3"
 
-WEB_PATH_PREFIX = "/web/"
-WEB_MAX_REQUESTS = 10
-WEB_WINDOW_SECONDS = 60.0
+# Requests per minute our plan allows, by path prefix (account endpoints page, 22 Nov 2026).
+# Paths not listed have no limit.
+RATE_LIMITS_PER_MINUTE = {
+    "/company/identify": 5,
+    "/person/identify": 5,
+    "/web/": 10,
+    "/company/enrich": 15,
+    "/person/enrich": 15,
+    "/company/search": 30,
+    "/person/search": 30,
+    "/job/search": 30,
+}
 
 MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 2.0
@@ -92,56 +99,49 @@ class ApiResponse:
 
 
 class RateLimiter:
-    """Sliding-window limiter: at most ``max_requests`` per ``window`` seconds."""
+    """Sliding window: at most ``max_requests`` in any 60 seconds."""
 
-    def __init__(self, max_requests: int, window: float):
+    def __init__(self, max_requests: int):
         self.max_requests = max_requests
-        self.window = window
         self._calls: deque[float] = deque()
-        self._lock = threading.Lock()
 
     def acquire(self) -> None:
         while True:
-            with self._lock:
-                now = time.monotonic()
-                while self._calls and now - self._calls[0] >= self.window:
-                    self._calls.popleft()
-                if len(self._calls) < self.max_requests:
-                    self._calls.append(now)
-                    return
-                wait = self.window - (now - self._calls[0])
-            time.sleep(max(wait, 0.01))
+            now = time.monotonic()
+            while self._calls and now - self._calls[0] >= 60:
+                self._calls.popleft()
+            if len(self._calls) < self.max_requests:
+                self._calls.append(now)
+                return
+            time.sleep(60 - (now - self._calls[0]))
 
 
 class ResponseCache:
     """SQLite store of responses keyed by request hash."""
 
     def __init__(self, path: str | os.PathLike[str]):
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        self._lock = threading.Lock()
-        with self._lock:
-            self._conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS responses (
-                    request_hash TEXT PRIMARY KEY,
-                    method       TEXT NOT NULL,
-                    path         TEXT NOT NULL,
-                    request_body TEXT NOT NULL,
-                    status       INTEGER NOT NULL,
-                    response     TEXT NOT NULL,
-                    created_at   REAL NOT NULL
-                )
-                """
+        self._conn = sqlite3.connect(str(path))
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS responses (
+                request_hash TEXT PRIMARY KEY,
+                method       TEXT NOT NULL,
+                path         TEXT NOT NULL,
+                request_body TEXT NOT NULL,
+                status       INTEGER NOT NULL,
+                response     TEXT NOT NULL,
+                created_at   REAL NOT NULL
             )
-            self._conn.commit()
+            """
+        )
+        self._conn.commit()
 
     def get(self, request_hash: str) -> tuple[Any, float] | None:
         """Return (response, created_at unix seconds), or None if not cached."""
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT response, created_at FROM responses WHERE request_hash = ?",
-                (request_hash,),
-            ).fetchone()
+        row = self._conn.execute(
+            "SELECT response, created_at FROM responses WHERE request_hash = ?",
+            (request_hash,),
+        ).fetchone()
         return None if row is None else (json.loads(row[0]), row[1])
 
     def put(
@@ -153,24 +153,14 @@ class ResponseCache:
         status: int,
         response: Any,
     ) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO responses VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    request_hash,
-                    method,
-                    path,
-                    body_text,
-                    status,
-                    json.dumps(response),
-                    time.time(),
-                ),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "INSERT OR REPLACE INTO responses VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (request_hash, method, path, body_text, status, json.dumps(response), time.time()),
+        )
+        self._conn.commit()
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        self._conn.close()
 
 
 def canonical_body(body: Any) -> str:
@@ -190,7 +180,6 @@ class CrustdataClient:
         self,
         api_key: str | None = None,
         cache_path: str | os.PathLike[str] = DEFAULT_CACHE_PATH,
-        base_url: str = BASE_URL,
         timeout: float = 120.0,
         ttl_hours: dict[str, float] | None = None,
         offline: bool = False,
@@ -208,10 +197,9 @@ class CrustdataClient:
         self.api_key = api_key or os.environ.get(API_KEY_ENV)
         if not self.api_key and not offline:
             raise RuntimeError(f"Set the {API_KEY_ENV} environment variable.")
-        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.cache = ResponseCache(cache_path)
-        self.web_limiter = RateLimiter(WEB_MAX_REQUESTS, WEB_WINDOW_SECONDS)
+        self.limiters = {prefix: RateLimiter(n) for prefix, n in RATE_LIMITS_PER_MINUTE.items()}
         self.ttl_hours = ttl_hours
         self.offline = offline
         self.run_id = run_id
@@ -272,9 +260,10 @@ class CrustdataClient:
                           credits=credits, request_hash=key, duration_ms=duration_ms)
 
     def _send_with_retry(self, method: str, path: str, body: Any) -> tuple[int, dict[str, str], Any]:
+        limiter = self._limiter_for(path)
         for attempt in range(MAX_RETRIES + 1):
-            if path.startswith(WEB_PATH_PREFIX):
-                self.web_limiter.acquire()
+            if limiter:
+                limiter.acquire()
             try:
                 status, headers, response = self._send(method, path, body)
             except (urllib.error.URLError, TimeoutError, ConnectionError) as err:
@@ -290,25 +279,24 @@ class CrustdataClient:
             time.sleep(self._backoff_seconds(attempt, headers))
         raise AssertionError("unreachable")
 
+    def _limiter_for(self, path: str) -> RateLimiter | None:
+        for prefix, limiter in self.limiters.items():
+            if path.startswith(prefix):
+                return limiter
+        return None
+
     @staticmethod
     def _backoff_seconds(attempt: int, headers: dict[str, str]) -> float:
-        # Docs: wait x-ratelimit-reset seconds, then back off exponentially
-        # with jitter. Retry-After is honoured too if it ever appears.
-        exp = min(BACKOFF_BASE_SECONDS * (2 ** attempt), BACKOFF_MAX_SECONDS)
-        jitter = random.uniform(0, exp / 2)
-        for name in ("x-ratelimit-reset", "retry-after"):
-            value = headers.get(name)
-            if value:
-                try:
-                    return float(value) + jitter
-                except ValueError:
-                    pass
-        return exp + jitter
+        """Wait as long as x-ratelimit-reset says (docs), otherwise 2s, 4s, 8s, ... up to 60s."""
+        try:
+            return min(float(headers["x-ratelimit-reset"]), BACKOFF_MAX_SECONDS)
+        except (KeyError, ValueError):
+            return min(BACKOFF_BASE_SECONDS * (2 ** attempt), BACKOFF_MAX_SECONDS)
 
     def _send(self, method: str, path: str, body: Any) -> tuple[int, dict[str, str], Any]:
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
-            self.base_url + path,
+            BASE_URL + path,
             data=data,
             method=method,
             headers={
@@ -332,8 +320,14 @@ class CrustdataClient:
     def company_search(self, body: dict[str, Any]) -> Any:
         return self.request("/company/search", body)
 
+    def person_search(self, body: dict[str, Any]) -> Any:
+        return self.request("/person/search", body)
+
     def job_search(self, body: dict[str, Any]) -> Any:
         return self.request("/job/search", body)
+
+    def social_post_search(self, body: dict[str, Any]) -> Any:
+        return self.request("/social_post/search", body)
 
     def web_search(self, body: dict[str, Any]) -> Any:
         return self.request("/web/search/live", body)

@@ -25,9 +25,6 @@ class TestInstagramParser(unittest.TestCase):
     def test_dates(self):
         self.assertEqual(self.result["shortcode"], "DTNUCNQCL_w")
         self.assertEqual(self.result["taken_at"], 1767785782)
-        # Not present in this fixture.
-        self.assertIsNone(self.result["datePublished"])
-        self.assertIsNone(self.result["uploadDate"])
 
     def test_status_and_time_check(self):
         self.assertEqual(self.result["kind"], "post")

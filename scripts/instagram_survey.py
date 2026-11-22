@@ -1,5 +1,8 @@
-"""Find ~15 Instagram post/reel URLs via Crustdata web search, fetch each with
-human_mode true, parse it, and write a summary table.
+"""Find ~15 Instagram post/reel URLs via Crustdata web search, fetch each,
+parse it, and write a summary table.
+
+The committed report came from a run with human_mode true. A later test showed
+a plain fetch returns the same page, so human_mode is no longer sent.
 
 Usage:
     export CRUSTDATA_API_KEY=...
@@ -61,8 +64,7 @@ IG_POST = re.compile(r"^https?://(www\.)?instagram\.com/(?:[^/]+/)?(p|reel|reels
 COLUMNS = [
     "url", "kind", "parse_status", "handle", "posted_at", "caption_length",
     "comment_count", "caption_is_edited", "time_tag", "time_delta_seconds", "time_disagrees",
-    "datePublished", "uploadDate", "fetch_success", "http_status", "page_title",
-    "content_chars",
+    "fetch_success", "http_status", "page_title", "content_chars",
 ]
 
 
@@ -112,7 +114,7 @@ def survey_row(client: CrustdataClient, url: str) -> dict:
     kind, _ = parse_url(url)
     row = {c: None for c in COLUMNS} | {"url": url, "kind": kind}
     try:
-        resp = client.web_fetch({"urls": [url], "human_mode": True})
+        resp = client.web_fetch({"urls": [url]})
     except CrustdataError as err:
         return row | {"parse_status": "no_post_object", "fetch_success": False, "http_status": err.status}
     r = resp[0] if isinstance(resp, list) and resp else {}
@@ -137,8 +139,6 @@ def survey_row(client: CrustdataClient, url: str) -> dict:
         "time_tag": p["time_tag"],
         "time_delta_seconds": p["time_delta_seconds"],
         "time_disagrees": p["time_disagrees"],
-        "datePublished": p["datePublished"],
-        "uploadDate": p["uploadDate"],
     }
 
 
@@ -163,7 +163,7 @@ def write_reports(rows: list[dict], search_log: list[dict]) -> str:
         "# Instagram fetch survey",
         "",
         f"Generated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}. "
-        "Each URL fetched via /web/enrich/live with human_mode true.",
+        "Each URL fetched via /web/enrich/live.",
         "",
         f"- Success rate (parse_status ok): {pct('ok')}",
         f"- Gated rate: {pct('gated')}",

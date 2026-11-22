@@ -126,5 +126,27 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(api.calls, 1)
 
 
+class RateLimiterTest(unittest.TestCase):
+    def test_waits_once_the_minute_is_full(self):
+        clock = [0.0]
+
+        def fake_sleep(seconds):
+            clock[0] += seconds
+
+        limiter = crustdata_client.RateLimiter(2)
+        with mock.patch.object(crustdata_client.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(crustdata_client.time, "sleep", side_effect=fake_sleep) as sleep:
+            for _ in range(3):
+                limiter.acquire()
+
+        sleep.assert_called_once_with(60.0)
+
+    def test_company_identify_is_held_to_five_a_minute(self):
+        client = CrustdataClient(api_key="test", cache_path=":memory:")
+        self.assertEqual(client._limiter_for("/company/identify").max_requests, 5)
+        self.assertIsNone(client._limiter_for("/social_post/search"))
+        client.close()
+
+
 if __name__ == "__main__":
     unittest.main()

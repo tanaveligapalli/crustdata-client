@@ -1,12 +1,14 @@
-"""Call five Crustdata endpoints and save each raw response to tests/fixtures/.
+"""Call each Crustdata endpoint we use and save its raw response to tests/fixtures/.
 
 Usage:
     export CRUSTDATA_API_KEY=...
     python3 scripts/capture_fixtures.py
 
+Only missing fixtures are captured; delete a file to capture it again. Tests
+depend on the saved files, so existing ones are never overwritten.
+
 Request bodies use only parameters documented at https://docs.crustdata.com
 (API version 2025-11-01). Responses are written exactly as returned.
-Calls go through the client's SQLite cache, so re-running costs no credits.
 """
 
 from __future__ import annotations
@@ -35,6 +37,19 @@ CALLS = [
         },
     ),
     (
+        # A decision-maker at a sponsor: partnerships people at HubSpot.
+        "person_search",
+        "person_search",
+        {
+            "filters": {"op": "and", "conditions": [
+                {"field": "experience.employment_details.current.company_website_domain", "type": "=", "value": "hubspot.com"},
+                {"field": "experience.employment_details.current.title", "type": "(.)", "value": "partnerships"},
+            ]},
+            "fields": ["crustdata_person_id", "basic_profile", "social_handles", "contact"],
+            "limit": 1,
+        },
+    ),
+    (
         "job_search",
         "job_search",
         {
@@ -45,6 +60,21 @@ CALLS = [
         },
     ),
     (
+        # Past sponsorship evidence: the newest company post about sponsoring a conference.
+        "social_post_search",
+        "social_post_search",
+        {
+            "filters": {"op": "and", "conditions": [
+                {"field": "text", "type": "[.]", "value": "sponsor"},
+                {"field": "text", "type": "[.]", "value": "conference"},
+                {"field": "actor.actor_type", "type": "=", "value": "company"},
+            ]},
+            "fields": ["share_url", "text", "date_posted", "actor", "engagement", "mentions", "metadata"],
+            "sorts": [{"field": "date_posted", "order": "desc"}],
+            "limit": 1,
+        },
+    ),
+    (
         "web_search",
         "web_search",
         {"query": "hackathon sponsors announced India", "site": "instagram.com"},
@@ -52,7 +82,7 @@ CALLS = [
     (
         "web_fetch",
         "web_fetch",
-        {"urls": ["https://www.instagram.com/p/DTNUCNQCL_w/"], "human_mode": True},
+        {"urls": ["https://www.instagram.com/p/DTNUCNQCL_w/"]},
     ),
 ]
 
@@ -63,6 +93,9 @@ def main() -> int:
     failures = 0
     try:
         for name, method, body in CALLS:
+            if (FIXTURES / f"{name}.json").exists():
+                print(f"skip {name} (already saved)")
+                continue
             try:
                 response = getattr(client, method)(body)
             except CrustdataError as err:

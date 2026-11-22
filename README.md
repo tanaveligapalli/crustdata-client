@@ -37,6 +37,11 @@ The same job as `app.py` with a designed page: describe the event, see the brief
 check, ranked sponsors with company logos and every sourced fact, pick companies, approve each
 pitch, send, and follow the pipeline. Weights, scores, confidence and costs are only sent to the
 browser by a `--debug` server, so start it without `--debug` for anyone who isn't an operator.
+Without Gmail settings it runs as a **sandbox**: approved emails are saved to `outbox/<run>/`, a
+teammate plays the sponsor by typing replies on the page (saved to `inbox/<run>/`), and the agent
+reads them as it would the team inbox. Each answer or invite it drafts waits for an Approve click.
+**Demo video:** with the server running (`--debug`), `python scripts/record_demo.py` records the
+whole job to `recordings/` (needs `pip install playwright imageio-ffmpeg` and Chrome).
 It listens on this machine only; each new search is capped at 150 credits (`--credit-limit` changes it). Logos cost 0.03
 credits per company shown (once; they're cached).
 

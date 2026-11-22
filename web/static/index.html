@@ -218,10 +218,45 @@
           </div>
         </section>
 
+        <section class="mailbox" id="mailbox" hidden aria-labelledby="mailbox-h">
+          <div class="section-bar">
+            <h3 class="h3" id="mailbox-h">Mailbox</h3>
+            <p class="small" id="mailbox-sub"></p>
+          </div>
+          <div class="sandbox-note" id="sandbox-note" hidden>
+            <span class="pill pill-dark">Sandbox</span>
+            Nothing leaves this machine: the agent's emails are saved to <code>outbox/</code>, and sponsor replies
+            are typed below by a teammate playing the sponsor. The agent reads them exactly as it would read the team inbox.
+          </div>
+          <div class="mail-grid">
+            <div class="threads" id="threads"></div>
+            <aside class="card composer-sponsor" id="sponsor-box" hidden aria-labelledby="sponsor-h">
+              <p class="eyebrow-sm">Teammate playing the sponsor</p>
+              <h4 class="card-title" id="sponsor-h">Reply as the sponsor</h4>
+              <label class="field-label" for="sponsor-company">Company</label>
+              <select id="sponsor-company"></select>
+              <label class="field-label" for="sponsor-text">Their reply</label>
+              <textarea id="sponsor-text" rows="5" placeholder="e.g. Thanks! How many people do you expect?"></textarea>
+              <button class="btn btn-sm btn-black" id="sponsor-send" type="button"><span class="btn-text">Send reply as sponsor</span></button>
+            </aside>
+          </div>
+          <div class="action-bar">
+            <p><strong id="unread-count">0</strong> new repl<span id="unread-plural">ies</span>. The agent reads each one, answers from your brief or books a meeting, and asks you before sending anything.</p>
+            <button class="btn btn-yellow" id="replies-btn" type="button">
+              <span class="btn-text">Check replies</span>
+              <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/></svg></span>
+            </button>
+          </div>
+        </section>
+
         <section class="pipeline" id="pipeline" hidden aria-labelledby="pipeline-h">
           <div class="section-bar">
             <h3 class="h3" id="pipeline-h">Pipeline</h3>
+<<<<<<< Updated upstream
             <p class="small" id="reply-source"></p>
+=======
+            <p class="small" id="pipeline-sub"></p>
+>>>>>>> Stashed changes
           </div>
           <div class="board" id="board"></div>
 
@@ -289,6 +324,19 @@
       <p class="small" id="footer-run"></p>
     </div>
   </footer>
+
+  <dialog class="approval" id="approval" aria-labelledby="approval-h">
+    <p class="eyebrow-sm">Needs your OK</p>
+    <h3 class="card-title" id="approval-h">The agent wants to send this</h3>
+    <pre class="approval-body" id="approval-body"></pre>
+    <div class="approval-foot">
+      <button class="btn btn-sm" id="approval-no" type="button"><span class="btn-text">Don't send</span></button>
+      <button class="btn btn-pink" id="approval-yes" type="button">
+        <span class="btn-text">Approve and send</span>
+        <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7-8-1z"/></svg></span>
+      </button>
+    </div>
+  </dialog>
 
   <script src="/app.js" defer></script>
 </body>

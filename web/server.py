@@ -11,12 +11,23 @@ Rules this file keeps:
   evidence values are only in the response when the server was started with --debug AND
   the page asks for them (?debug=1). Without --debug the page has no toggle at all.
 - Listens on 127.0.0.1 by default: Run spends credits and Send sends email.
+- Sandbox email (no Gmail settings): approved emails are written to outbox/<run>/, and a
+  teammate plays the sponsor by typing replies on the page, written to inbox/<run>/. The
+  agent reads that folder exactly as it would read the team inbox. Nothing leaves the machine.
+- Every email the agent drafts while handling replies (an answer, an invite) waits for a
+  person on the page: the job pauses at outreach.approve() until someone clicks.
 """
 
 from __future__ import annotations
 
 import argparse
+import email
 import json
+import re
+import uuid
+from email import policy
+from email.message import EmailMessage
+from email.utils import format_datetime, make_msgid, parseaddr
 import mimetypes
 import os
 import sqlite3
@@ -26,11 +37,13 @@ import traceback
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
+INBOX = ROOT / "inbox"        # sandbox: sponsor replies typed on the page (gitignored)
 sys.path.insert(0, str(ROOT))
 
 import agent  # noqa: E402
@@ -143,7 +156,11 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
     ensure_tables(db)
     view: dict[str, Any] = {"run_id": run_id, "job": job, "brief": None, "dropped": [], "host": None,
                             "sponsors": [], "excluded": [], "failed_pools": [], "total_found": 0,
+<<<<<<< Updated upstream
                             "pitches": [], "pipeline": [], "people": [], "held_replies": [], "replies": []}
+=======
+                            "pitches": [], "pipeline": [], "mail": []}
+>>>>>>> Stashed changes
     brief_data = step_output(db, run_id, "brief")
     if brief_data is None:
         return view
@@ -178,8 +195,10 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
             d = outreach.saved_pitch(db, run_id, by_id[company_id], brief) if company_id in by_id else None
             if d:
                 view["pitches"].append({"company_id": d.company_id, "company": d.company_name, "to_role": d.to_role,
-                                        "subject": d.subject, "body": d.body, "notes": d.notes})
+                                        "subject": d.subject, "body": d.body, "notes": d.notes,
+                                        "contact": public_contact(step_output(db, run_id, f"contact:{company_id}"))})
         view["pipeline"] = outreach.pipeline(db, run_id)
+<<<<<<< Updated upstream
         in_pipeline = {r["company_id"] for r in view["pipeline"]}
         # People listed for companies the host picked but hasn't drafted yet: the host chooses one each.
         for c in candidates:
@@ -189,6 +208,12 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
                                        "people": [public_person(p) for p in people]})
         view["held_replies"] = [public_held(h, by_id) for h in outreach.held_drafts(db, run_id)]
         view["replies"] = agent.reply_log(db, run_id)
+=======
+        view["mail"] = mailbox(run_id, {c.company_id: c.name for c in candidates})
+        seen = {r[0] for r in db.execute("SELECT message_id FROM replies_seen WHERE run_id = ?", (run_id,))}
+        for m in view["mail"]:
+            m["handled"] = m["direction"] == "out" or m["message_id"] in seen
+>>>>>>> Stashed changes
 
     if debug:
         view["debug"] = {"host_type": brief.host_type or scoring_cfg["default_host_type"],
@@ -198,6 +223,7 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
     return view
 
 
+<<<<<<< Updated upstream
 def public_person(p: dict[str, Any]) -> dict[str, Any]:
     """Business details only: name, current title, since when, professional profile."""
     since = next((e.get("record_date") for e in p.get("evidence") or [] if e.get("record_date")), None)
@@ -210,6 +236,88 @@ def public_held(h: dict[str, Any], by_id: dict[int, Candidate]) -> dict[str, Any
             "kind": "Meeting invite" if d.kind == "invite" else "Answer",
             "to_role": d.to_role, "subject": d.subject, "body": d.body, "notes": d.notes,
             "attachments": [a[0] for a in d.attachments], "then": h["done_state"]}
+=======
+def public_contact(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The decision-maker found for a company: business details and the fact that they hold the role."""
+    if not data:
+        return None
+    facts = [public_fact(Evidence(**e)) for e in data.get("evidence", [])]
+    return {"name": data["name"], "title": data["title"], "profile_url": data.get("profile_url") or None,
+            "facts": facts}
+
+
+REF = re.compile(r"\[ref:([^\]\s]+):(\d+)\]")
+TO_TAG = re.compile(r"\[to: ([^\]]*)\]")
+
+
+def read_eml(path: Path) -> EmailMessage:
+    with open(path, "rb") as f:
+        return email.message_from_binary_file(f, policy=policy.default)
+
+
+def mail_item(msg: EmailMessage, direction: str, names: dict[int, str]) -> dict[str, Any]:
+    subject = msg.get("Subject", "")
+    ref = REF.search(subject)
+    to_tag = TO_TAG.search(subject)
+    body = msg.get_body(preferencelist=("plain",))
+    invites = [part.get_content() for part in msg.iter_attachments()
+               if part.get_content_type() == "text/calendar"]
+    start = next((m.group(1) for ics in invites if (m := re.search(r"DTSTART:(\d{8}T\d{6}Z)", ics))), None)
+    company_id = int(ref.group(2)) if ref else None
+    return {"direction": direction, "company_id": company_id, "company": names.get(company_id),
+            "from": parseaddr(msg.get("From", ""))[0] or msg.get("From", ""), "to_role": to_tag.group(1) if to_tag else None,
+            "subject": " ".join(REF.sub("", TO_TAG.sub("", subject)).split()), "date": msg.get("Date"),
+            "message_id": msg.get("Message-ID"), "body": body.get_content().strip() if body else "",
+            "attachments": [p.get_filename() for p in msg.iter_attachments()], "invite_start": start}
+
+
+def mailbox(run_id: str, names: dict[int, str]) -> list[dict[str, Any]]:
+    """Sandbox mail for this run, oldest first: what the agent wrote (outbox/) and the replies
+    a teammate typed as the sponsor (inbox/). Empty when real Gmail is used."""
+    items = []
+    for folder, direction in ((agent.OUTBOX / run_id, "out"), (INBOX / run_id, "in")):
+        for path in sorted(folder.glob("*.eml")) if folder.is_dir() else []:
+            items.append((path.stat().st_mtime, direction, path.name, mail_item(read_eml(path), direction, names)))
+    return [item for *_, item in sorted(items, key=lambda x: (x[0], x[1], x[2]))]
+
+
+def write_sponsor_reply(run_id: str, company_id: int, company: str, text: str) -> Path:
+    """Sandbox: a teammate plays the sponsor. The reply threads onto the last email the agent
+    sent that company, with its [ref:] tag, exactly like a real reply in the team inbox."""
+    sent = [m for m in mailbox(run_id, {}) if m["direction"] == "out" and m["company_id"] == company_id]
+    if not sent:
+        raise ValueError("nothing was sent to this company yet")
+    last_path = sorted((agent.OUTBOX / run_id).glob("*.eml"))
+    last = next(read_eml(p) for p in reversed(last_path) if f":{company_id}]" in read_eml(p).get("Subject", ""))
+    slug = re.sub(r"[^a-z0-9]+", "-", company.casefold()).strip("-")
+    msg = EmailMessage()
+    msg["From"] = f"Teammate playing {company} <{slug}.sponsor@sandbox.local>"
+    msg["To"] = last.get("From", "")
+    subject = last.get("Subject", "")
+    msg["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+    msg["Message-ID"] = make_msgid(domain="sandbox.local")
+    msg["In-Reply-To"] = msg["References"] = last.get("Message-ID", "")
+    msg["Date"] = format_datetime(datetime.now(timezone.utc))
+    msg.set_content(text)
+    folder = INBOX / run_id
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{len(list(folder.glob('*.eml'))) + 1:03d}.eml"
+    path.write_bytes(msg.as_bytes())
+    return path
+
+
+def folder_reader(run_id: str) -> Callable[[], list[outreach.Reply]]:
+    """Reads inbox/<run>/ the way outreach.imap_reader reads the team inbox."""
+    def read() -> list[outreach.Reply]:
+        replies = []
+        for path in sorted((INBOX / run_id).glob("*.eml")) if (INBOX / run_id).is_dir() else []:
+            msg = read_eml(path)
+            body = msg.get_body(preferencelist=("plain",))
+            replies.append(outreach.Reply(msg.get("Message-ID", path.name), msg.get("From", ""),
+                                          msg.get("Subject", ""), body.get_content() if body else ""))
+        return replies
+    return read
+>>>>>>> Stashed changes
 
 
 def cost(db: sqlite3.Connection, run_id: str) -> dict[str, float]:
@@ -275,6 +383,7 @@ class Jobs:
         self.lock = threading.Lock()
         self.running: dict[str, str] = {}     # run_id -> what it's doing, for the page
         self.errors: dict[str, dict] = {}
+        self.pending: dict[str, dict] = {}    # run_id -> a draft waiting for a person's yes or no
 
     def start(self, run_id: str, label: str, work: Callable[[Callable[[str], None]], None]) -> bool:
         """Start `work(say)` in a thread. False if this run already has a job going."""
@@ -301,7 +410,36 @@ class Jobs:
         return True
 
     def status(self, run_id: str) -> dict[str, Any]:
-        return {"running": self.running.get(run_id), "error": self.errors.get(run_id)}
+        pending = self.pending.get(run_id)
+        return {"running": self.running.get(run_id), "error": self.errors.get(run_id),
+                "pending": {k: pending[k] for k in ("id", "question", "lines")} if pending else None}
+
+    def approver(self, run_id: str) -> tuple[Callable[[str], str], Callable[[str], None]]:
+        """(ask, show) for outreach.approve(): show() collects the draft, ask() waits for the page.
+        No answer in 15 minutes counts as no: nothing is ever sent by default."""
+        lines: list[str] = []
+
+        def show(text: str) -> None:
+            lines.append(text)
+
+        def ask(question: str) -> str:
+            item = {"id": uuid.uuid4().hex[:8], "question": question, "lines": list(lines),
+                    "event": threading.Event(), "answer": False}
+            lines.clear()
+            self.pending[run_id] = item
+            item["event"].wait(timeout=900)
+            self.pending.pop(run_id, None)
+            return "y" if item["answer"] else "n"
+
+        return ask, show
+
+    def decide(self, run_id: str, item_id: str, approve: bool) -> bool:
+        item = self.pending.get(run_id)
+        if not item or item["id"] != item_id:
+            return False
+        item["answer"] = approve
+        item["event"].set()
+        return True
 
 
 def error_view(e: Exception, credit_limit: float = CREDIT_LIMIT) -> dict[str, Any]:
@@ -332,13 +470,15 @@ class Workers:
     """Each job opens its own agent (and SQLite connections) inside its own thread."""
 
     def __init__(self, offline: bool, open_agent: Callable[..., Any] = agent.open_agent,
-                 credit_limit: float = CREDIT_LIMIT) -> None:
+                 credit_limit: float = CREDIT_LIMIT, db_path: str | Path = agent_db.DEFAULT_PATH) -> None:
         self.offline = offline
         self.open_agent = open_agent
         self.credit_limit = credit_limit
+        self.db_path = db_path
 
     def _agent(self, description: str):
-        return self.open_agent(description, offline=self.offline, credit_limit=self.credit_limit)
+        # The same database the page reads: --db must reach the agent too.
+        return self.open_agent(description, offline=self.offline, credit_limit=self.credit_limit, db_path=self.db_path)
 
     def search(self, description: str, say: Callable[[str], None]) -> None:
         job = self._agent(description)
@@ -437,6 +577,20 @@ class Workers:
             _close(job)
 
 
+    def replies(self, description: str, say: Callable[[str], None], ask: Callable[[str], str],
+                show: Callable[[str], None], sandbox: bool) -> None:
+        job = self._agent(description)
+        try:
+            brief, _ = agent.make_brief(job, description)
+            config = job.config["outreach"]
+            reader = folder_reader(job.run_id) if sandbox else outreach.imap_reader(config)
+            say("Reading replies and drafting the next step")
+            outreach.handle_replies(job.db, job.run_id, brief, config, reader, agent._sender(job),
+                                    agent._pitch_model(job), ask=ask, show=show)
+        finally:
+            _close(job)
+
+
 def _close(job: Any) -> None:
     for thing in (getattr(job, "client", None), getattr(job, "db", None)):
         try:
@@ -456,7 +610,8 @@ class App:
         self.db_path = str(db_path)
         self.credit_limit = credit_limit
         self.jobs = Jobs(credit_limit)
-        self.workers = workers or Workers(offline, credit_limit=credit_limit)
+        self.workers = workers or Workers(offline, credit_limit=credit_limit, db_path=db_path)
+        self.sandbox = email_destination() == "outbox"
         self.scoring_cfg = scoring.load_config()
 
     def db(self) -> sqlite3.Connection:
@@ -475,7 +630,8 @@ class App:
         try:
             if method == "GET" and parts == ["config"]:
                 return 200, {"debug_available": self.debug, "offline": self.offline,
-                             "credit_limit": self.credit_limit, "email": email_destination(), "examples": examples()}
+                             "credit_limit": self.credit_limit, "email": email_destination(),
+                             "sandbox": self.sandbox, "examples": examples()}
             if method == "GET" and parts == ["runs"]:
                 return 200, recent_runs(db)
             if method == "POST" and parts == ["runs"]:
@@ -497,11 +653,44 @@ class App:
                     return 200, run_view(db, run_id, self.scoring_cfg, want_debug, self.jobs.status(run_id))
                 if method == "POST" and len(parts) == 3 and parts[2] in self.ACTIONS:
                     return self.action(run_id, description, parts[2], body)
+                if method == "POST" and parts[2:] == ["replies"]:
+                    if self.offline:
+                        return 409, {"error": "Replay mode: replies need a live server."}
+                    ask, show = self.jobs.approver(run_id)
+                    work = lambda say: self.workers.replies(description, say, ask, show, self.sandbox)  # noqa: E731
+                    if not self.jobs.start(run_id, "Reading replies", work):
+                        return 409, {"error": "Already working on this run.", **self.jobs.status(run_id)}
+                    return 202, {"run_id": run_id}
+                if method == "POST" and parts[2:] == ["decide"]:
+                    ok = self.jobs.decide(run_id, str(body.get("id")), bool(body.get("approve")))
+                    return (200, {"ok": True}) if ok else (409, {"error": "Nothing is waiting for that answer."})
+                if method == "POST" and parts[2:] == ["sponsor-reply"]:
+                    return self.sponsor_reply(db, run_id, body)
             return 404, {"error": "Not found"}
         finally:
             db.close()
 
+<<<<<<< Updated upstream
     ACTIONS = ("search", "contacts", "pitches", "send", "replies", "send-replies", "discard-replies", "demo-reply")
+=======
+    def sponsor_reply(self, db: sqlite3.Connection, run_id: str, body: dict[str, Any]) -> tuple[int, Any]:
+        """Sandbox only: a teammate, playing the sponsor, replies to an email the agent sent."""
+        if not self.sandbox:
+            return 409, {"error": "Real email is set up: reply from a real inbox instead."}
+        text = (body.get("body") or "").strip()
+        if not text:
+            return 400, {"error": "Write the sponsor's reply first."}
+        company_id = int(body.get("company_id") or 0)
+        row = db.execute("SELECT company_name FROM outreach WHERE run_id = ? AND company_id = ?",
+                         (run_id, company_id)).fetchone() if _has_table(db, "outreach") else None
+        if row is None:
+            return 400, {"error": "Pick a company the agent has emailed."}
+        try:
+            write_sponsor_reply(run_id, company_id, row[0], text)
+        except (ValueError, StopIteration):
+            return 400, {"error": "Nothing was sent to this company yet."}
+        return 201, {"ok": True}
+>>>>>>> Stashed changes
 
     def action(self, run_id: str, description: str, kind: str, body: dict[str, Any]) -> tuple[int, Any]:
         ids = [int(i) for i in body.get("company_ids") or []]

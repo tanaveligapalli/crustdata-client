@@ -167,6 +167,19 @@ class BudgetTests(unittest.TestCase):
         self.assertIn("higher --credit-limit", view["message"])
         self.assertIn("150", view["message"])
 
+    def test_the_agent_uses_the_servers_database(self):
+        seen = {}
+
+        def fake_open_agent(description, offline, credit_limit, db_path):
+            seen.update(db_path=db_path, credit_limit=credit_limit)
+            raise RuntimeError("stop here")
+
+        workers = server.Workers(False, open_agent=fake_open_agent, credit_limit=40, db_path="/tmp/other.sqlite3")
+        with self.assertRaises(RuntimeError):
+            workers.search("x", lambda _: None)
+        self.assertEqual(seen, {"db_path": "/tmp/other.sqlite3", "credit_limit": 40})
+        self.assertEqual(server.App(db_path=":memory:").workers.db_path, ":memory:")
+
     def test_the_limit_reaches_the_page_and_the_agent(self):
         app = server.App(db_path=":memory:", credit_limit=40)
         self.assertEqual(app.handle("GET", "/api/config", {}, {})[1]["credit_limit"], 40)

@@ -101,7 +101,8 @@ def hiring_pool(brief: Brief, client: Any, cfg: dict[str, Any], today: date | No
         if company.get("crustdata_company_id") is None:
             continue
         company_id, name = company["crustdata_company_id"], company.get("name") or ""
-        about = {"domain": company.get("primary_domain"), "industries": company.get("industries") or []}
+        # No industries here -> None, so describe() looks them up (the category filters need them).
+        about = {"domain": company.get("primary_domain"), "industries": company.get("industries") or None}
         title, url = job["job_details"]["title"], job["job_details"]["url"]
         posted = job["metadata"]["date_added"]
 
@@ -338,6 +339,9 @@ def merge(hits: list[Hit], brief: Brief, cfg: dict[str, Any]) -> list[Candidate]
             continue  # never pitch the host to itself
         c = by_id.setdefault(hit.company_id, Candidate(
             hit.company_id, hit.name, hit.domain, industries=hit.industries or []))
+        # Whichever pool found it first may not have known these; take them from any hit.
+        c.industries = c.industries or list(hit.industries or [])
+        c.domain = c.domain or hit.domain
         if hit.pool not in c.found_by:
             c.found_by.append(hit.pool)
         if hit.signal:

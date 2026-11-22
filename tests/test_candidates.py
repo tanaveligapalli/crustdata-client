@@ -171,6 +171,13 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(merged[0].found_by, ["hiring", "company_search"])
         self.assertEqual(merged[0].industries, ["Banking"])
 
+    def test_industries_and_domain_come_from_any_hit_that_has_them(self):
+        # A job posting with no industries came first; the category filter needs the later ones.
+        hits = [Hit(7, "Acme", "hiring", industries=[]),
+                Hit(7, "Acme", "past_sponsor", industries=["Beverage Manufacturing"], domain="acme.in")]
+        merged = candidates.merge(hits, brief(), CFG)[0]
+        self.assertEqual((merged.industries, merged.domain), (["Beverage Manufacturing"], "acme.in"))
+
     def test_signal_value_counts_verified_sources(self):
         hits = [Hit(7, "Acme", "past_sponsor", "past_sponsorships", [self.fact("https://a.in/1")]),
                 Hit(7, "Acme", "past_sponsor", "past_sponsorships", [self.fact("https://a.in/1")])]

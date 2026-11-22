@@ -116,3 +116,11 @@ outreach:                    # block 6: outreach and replies
   max_tokens: 2048
   price_usd_per_mtok:
     claude-opus-5-5: {input: 4.00, output: 20.00}
+
+backtest:                    # block 5: do past events' real sponsors rank above non-sponsors?
+  min_sponsors: 2            # resolved sponsors an event needs to be tested
+  top_k: 10                  # recall is measured in the top k of the ranking
+  # Floors for reporting a result at all (set before looking at any result).
+  # Below them the report says "cannot verify" and what's missing.
+  min_events: 5
+  min_decided_share: 0.2     # share of sponsor/non-sponsor pairs not tied (mostly ties = no signal)

@@ -36,9 +36,13 @@ def main() -> int:
         return 2
     db = agent_db.connect(args.db)
     facts = backtest.load_facts(db, args.run_ids)
+    runs = db.execute("SELECT run_id, COUNT(*) FROM evidence WHERE subject LIKE 'company:%' "
+                      "GROUP BY run_id ORDER BY MIN(saved_at)").fetchall()
     db.close()
     if not facts:
-        print(f"No company facts saved for runs {', '.join(args.run_ids)}.")
+        print(f"No company facts saved for runs {', '.join(args.run_ids)}. Runs in this database:")
+        for run_id, count in runs:
+            print(f"  {run_id}  ({count} company facts)")
         return 2
 
     result = backtest.run(facts, args.profile, backtest.load_config(), candidates.load_config(),

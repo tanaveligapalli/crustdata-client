@@ -14,10 +14,15 @@ brief's city; the other signals aren't built). So this measures whether past
 sponsorships predict the next one, not the weights between signals.
 
 Leakage is the main risk: a post about the same event under another name ("BRICS" vs
-"BRICS Conference 2026") would put the answer into the history. Two facts are treated as
-the same event if their names match, one name contains the other, or their event dates
-overlap. When unsure, a fact is left out of the history: a score that's too low is safer
-than a pass mark that's too high.
+"BRICS Conference 2026") would put the answer into the history. Names are compared without
+generic words ("summit", "the", "annual"), ordinals and years; two facts are the same event
+if one name's distinctive words contain the other's and their years don't differ, or if
+their event dates overlap. So "Alpha Summit 2025" is history for "Alpha Summit 2026", but
+"Alpha Summit" (no year) is not. When unsure, a fact is left out of the history: a score
+that's too low is safer than a pass mark that's too high.
+
+Only non-sponsors with a known score count. One with no history can never outrank anyone,
+so pairs against it would only restate how many sponsors have history, not ranking skill.
 """
 
 from __future__ import annotations
@@ -35,6 +40,12 @@ from records import Brief, Evidence
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 POST_SOURCES = {"linkedin_post", "instagram_post"}
+# Words that don't tell one event from another. A name made only of these is no name.
+GENERIC_NAME_WORDS = {
+    "the", "a", "an", "of", "and", "in", "at", "for", "annual", "edition",
+    "conference", "summit", "conclave", "symposium", "expo", "forum", "convention", "hackathon",
+    "meetup", "event", "concert", "music", "festival", "fest",
+}
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
@@ -70,19 +81,26 @@ def is_sponsor_fact(fact: Evidence) -> bool:
             and isinstance(fact.value, dict) and fact.value.get("crustdata_company_id") is not None)
 
 
-def event_name_key(name: str | None) -> str:
-    """'14th BMR International Conference, 2026' -> 'bmr international conference 2026'."""
+def name_parts(name: str | None) -> tuple[str, frozenset[str]] | None:
+    """'14th BMR International Conference, 2026' -> ('bmr international', {'2026'}).
+    None if nothing distinctive is left (e.g. just "Summit")."""
     words = re.sub(r"[^\w\s]", " ", (name or "").casefold()).split()
-    return " ".join(w for w in words if not re.fullmatch(r"\d+(st|nd|rd|th)", w))
+    years = frozenset(w for w in words if re.fullmatch(r"(19|20)\d\d", w))
+    core = [w for w in words if w not in years and w not in GENERIC_NAME_WORDS
+            and not re.fullmatch(r"\d+(st|nd|rd|th)", w)]
+    return (" ".join(core), years) if core else None
 
 
-def _contains(a: str, b: str) -> bool:
-    return f" {a} " in f" {b} " or f" {b} " in f" {a} "
+def _same_name(a: tuple[str, frozenset[str]], b: tuple[str, frozenset[str]]) -> bool:
+    (core_a, years_a), (core_b, years_b) = a, b
+    contains = f" {core_a} " in f" {core_b} " or f" {core_b} " in f" {core_a} "
+    return contains and (not years_a or not years_b or bool(years_a & years_b))
 
 
 @dataclass
 class PastEvent:
-    names: set[str] = field(default_factory=set)       # event_name_key of every name seen
+    names: set[tuple[str, frozenset[str]]] = field(default_factory=set)  # name_parts of every name seen
+    labels: set[str] = field(default_factory=set)      # the names as written
     dates: set[str] = field(default_factory=set)       # event dates written in the posts
     post_dates: list[str] = field(default_factory=list)
     sponsors: dict[int, str] = field(default_factory=dict)  # company ID -> name as written
@@ -94,16 +112,16 @@ class PastEvent:
 
     @property
     def label(self) -> str:
-        return max(self.names, key=len) if self.names else f"event on {min(self.dates)}"
+        return max(sorted(self.labels), key=len) if self.labels else f"event on {min(self.dates)}"
 
     def same_as(self, fact: Evidence) -> bool:
-        name = event_name_key(fact.value.get("event_name"))
+        name = name_parts(fact.value.get("event_name"))
         dates = set(fact.value.get("event_dates") or [])
-        return bool(dates & self.dates) or any(name and _contains(name, n) for n in self.names)
+        return bool(dates & self.dates) or (name is not None and any(_same_name(name, n) for n in self.names))
 
 
 def _identifiable(fact: Evidence) -> bool:
-    return bool(event_name_key(fact.value.get("event_name")) or fact.value.get("event_dates"))
+    return name_parts(fact.value.get("event_name")) is not None or bool(fact.value.get("event_dates"))
 
 
 def past_events(facts: list[tuple[int, Evidence]]) -> list[PastEvent]:
@@ -118,8 +136,9 @@ def past_events(facts: list[tuple[int, Evidence]]) -> list[PastEvent]:
         if event is None:
             event = PastEvent()
             events.append(event)
-        if name := event_name_key(fact.value.get("event_name")):
-            event.names.add(name)
+        if parts := name_parts(fact.value.get("event_name")):
+            event.names.add(parts)
+            event.labels.add(fact.value["event_name"])
         event.dates |= set(fact.value.get("event_dates") or [])
         event.post_dates.append(fact.record_date)
         event.sponsors.setdefault(company_id, fact.value.get("sponsor_name_as_written") or "")
@@ -152,16 +171,19 @@ def rank_as_of(event: PastEvent, facts: list[tuple[int, Evidence]], universe: di
 
 
 def measure(ranked, sponsors: set[int], top_k: int) -> dict[str, Any]:
-    """Pairwise: a sponsor above a non-sponsor wins, a tie counts half (AUC).
-    An unknown score (None) is below every known one, as in scoring.rank."""
+    """Pairwise against non-sponsors with a known score: a sponsor above one wins, a tie
+    counts half (AUC). A sponsor with no score (None) is below every known one, as in
+    scoring.rank, so missing history counts against us."""
     key = {c.company_id: (c.score if c.score is not None else -1.0) for c in ranked}
     pos = [key[c] for c in key if c in sponsors]
-    neg = [key[c] for c in key if c not in sponsors]
+    neg_all = [key[c] for c in key if c not in sponsors]
+    neg = [n for n in neg_all if n >= 0]
     wins = sum(1.0 if p > n else 0.5 if p == n else 0.0 for p in pos for n in neg)
     decided = sum(p != n for p in pos for n in neg)
     top = {c.company_id for c in ranked[:top_k]}
     return {
-        "sponsors": len(pos), "non_sponsors": len(neg), "pairs": len(pos) * len(neg),
+        "sponsors": len(pos), "non_sponsors": len(neg_all), "non_sponsors_known": len(neg),
+        "pairs": len(pos) * len(neg),
         "wins": wins, "decided": decided,
         "auc": wins / (len(pos) * len(neg)) if pos and neg else None,
         "sponsors_known": sum(p >= 0 for p in pos),
@@ -201,8 +223,8 @@ def run(facts: list[tuple[int, Evidence]], profile: str, cfg: dict[str, Any],
     }
     missing = []
     if len(rows) < cfg["min_events"]:
-        missing.append(f"only {len(rows)} testable events (need {cfg['min_events']}, "
-                       f"each with {cfg['min_sponsors']}+ resolved sponsors)")
+        missing.append(f"only {len(rows)} testable events (need {cfg['min_events']}, each with "
+                       f"{cfg['min_sponsors']}+ resolved sponsors and a non-sponsor with earlier sponsorships)")
     if total["decided_share"] is not None and total["decided_share"] < cfg["min_decided_share"]:
         missing.append(f"only {total['decided_share']:.0%} of sponsor/non-sponsor pairs were decided "
                        f"(need {cfg['min_decided_share']:.0%}): most companies have no sponsorship "
@@ -235,9 +257,11 @@ def report(result: dict[str, Any]) -> str:
         f"- Pairs decided (not tied): {pct(t['decided_share'])}",
         f"- AUC: {pct(t['auc'])} · mean recall in top {t['top_k']}: {pct(t['mean_recall_at_k'])}",
         "- Only `past_sponsorships` can be known at a past date, so this tests that signal, not the weights.",
-        "", "| Event | Cutoff | Sponsors | Known | Non-sponsors | AUC | Recall@k |", "|---|---|---|---|---|---|---|",
+        "- Compared only against non-sponsors with earlier sponsorships; ones with none can't outrank anyone.",
+        "", "| Event | Cutoff | Sponsors | With history | Non-sponsors | With history | AUC | Recall@k |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in result["events"]:
         lines.append(f"| {r['event'].replace('|', '/')} | {r['cutoff']} | {r['sponsors']} | {r['sponsors_known']} | "
-                     f"{r['non_sponsors']} | {pct(r['auc'])} | {pct(r['recall_at_k'])} |")
+                     f"{r['non_sponsors']} | {r['non_sponsors_known']} | {pct(r['auc'])} | {pct(r['recall_at_k'])} |")
     return "\n".join(lines) + "\n"

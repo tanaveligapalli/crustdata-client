@@ -23,8 +23,8 @@ def brief(website="technova.org"):
 
 
 class FakeClient:
-    def __init__(self, page=None, identify=None):
-        self.page, self.identify, self.paths = page, identify or [], []
+    def __init__(self, page=None, identify=None, timestamp=1795000000):
+        self.page, self.identify, self.paths, self.timestamp = page, identify or [], [], timestamp
 
     def call(self, path, body):
         self.paths.append(path)
@@ -33,7 +33,7 @@ class FakeClient:
             if self.page is None:
                 data = [{"url": url, "success": False, "content": None}]
             else:
-                data = [{"url": url, "success": True, "content": self.page, "timestamp": 1795000000}]
+                data = [{"url": url, "success": True, "content": self.page, "timestamp": self.timestamp}]
             return ApiResponse(data, RETRIEVED, False, 1)
         return ApiResponse(self.identify, RETRIEVED, False, 0)
 
@@ -55,6 +55,11 @@ class HostCheckTests(unittest.TestCase):
         fact = host_check.check_host(brief(), FakeClient(PAGE))
         self.assertEqual(fact.status, "verified")
         self.assertIsNone(fact.value["crustdata_company_id"])
+
+    def test_page_with_no_date_says_so_not_that_the_host_is_missing(self):
+        fact = host_check.check_host(brief(), FakeClient(PAGE, timestamp=None))
+        self.assertEqual(fact.status, "cannot_verify")
+        self.assertEqual(fact.missing, "the record has no date")
 
     def test_site_about_someone_else_is_not_verified(self):
         fact = host_check.check_host(brief(), FakeClient("<html>Acme Plumbing, since 1990</html>"))

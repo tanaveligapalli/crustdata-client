@@ -70,8 +70,9 @@ def check_host(brief: Brief, client: Any, db: sqlite3.Connection | None = None,
     fact = evidence.from_web_fetch(result, response.retrieved_at, brief.host_name, claim,
                                    {"domain": domain, "crustdata_company_id": company_id},
                                    evidence.unix_to_iso(result.get("timestamp")))
-    if fact.status != "verified":
+    if not evidence.quote_on_page(brief.host_name, evidence.page_text(result["content"])):
         fact.missing = f"the website {url} does not mention '{brief.host_name}'"
+    # Otherwise keep Evidence's own reason (e.g. the fetch had no date): a wrong reason is a wrong fact.
     return _save(fact, db, run_id, brief)
 
 

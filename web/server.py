@@ -332,13 +332,15 @@ class Workers:
     """Each job opens its own agent (and SQLite connections) inside its own thread."""
 
     def __init__(self, offline: bool, open_agent: Callable[..., Any] = agent.open_agent,
-                 credit_limit: float = CREDIT_LIMIT) -> None:
+                 credit_limit: float = CREDIT_LIMIT, db_path: str | Path = agent_db.DEFAULT_PATH) -> None:
         self.offline = offline
         self.open_agent = open_agent
         self.credit_limit = credit_limit
+        self.db_path = db_path
 
     def _agent(self, description: str):
-        return self.open_agent(description, offline=self.offline, credit_limit=self.credit_limit)
+        # The database the page reads: --db must reach the agent too, or it writes to agent.sqlite3.
+        return self.open_agent(description, offline=self.offline, credit_limit=self.credit_limit, db_path=self.db_path)
 
     def search(self, description: str, say: Callable[[str], None]) -> None:
         job = self._agent(description)
@@ -430,7 +432,7 @@ class Workers:
 
     def quick(self, description: str, work: Callable[[Any], Any]) -> Any:
         """Database-only steps (demo inbox, discarding a draft): no client calls, so open it offline."""
-        job = self.open_agent(description, offline=True, credit_limit=self.credit_limit)
+        job = self.open_agent(description, offline=True, credit_limit=self.credit_limit, db_path=self.db_path)
         try:
             return work(job)
         finally:
@@ -456,7 +458,7 @@ class App:
         self.db_path = str(db_path)
         self.credit_limit = credit_limit
         self.jobs = Jobs(credit_limit)
-        self.workers = workers or Workers(offline, credit_limit=credit_limit)
+        self.workers = workers or Workers(offline, credit_limit=credit_limit, db_path=db_path)
         self.scoring_cfg = scoring.load_config()
 
     def db(self) -> sqlite3.Connection:

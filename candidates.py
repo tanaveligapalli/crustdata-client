@@ -120,28 +120,61 @@ def hiring_pool(brief: Brief, client: Any, cfg: dict[str, Any], today: date | No
 # -- pool: past sponsors ------------------------------------------------------
 
 
-def sponsors_in_post(post: dict[str, Any], retrieved_at: str, source_type: str, db: sqlite3.Connection,
-                     run_id: str, client: Any, ig_config: dict[str, Any], call_model: CallModel) -> list[Hit]:
-    """Sponsors named in one post's text, via block 3b: the model extracts, code checks every
+def sponsors_in_posts(posts: list[tuple[dict[str, Any], str]], source_type: str, db: sqlite3.Connection,
+                      run_id: str, client: Any, cfg: dict[str, Any], ig_config: dict[str, Any],
+                      call_model: CallModel) -> list[Hit]:
+    """Sponsors named in posts' text, via block 3b: the model extracts, code checks every
     name is in the text, and names resolve to company IDs only on a clear match.
 
-    `post` has the instagram_parser.parse_post keys: url, parse_status, shortcode, handle,
-    caption, taken_at. Unresolved brands are saved as "cannot verify" under subject "unresolved".
+    posts: (post, retrieved_at) pairs; a post has the instagram_parser.parse_post keys
+    (url, parse_status, shortcode, handle, caption, taken_at), and LinkedIn posts also have
+    `tagged`: {company ID: name} for the companies the post links to.
+
+    A name that matches exactly one tagged company takes that company's ID: the post itself
+    links it, which beats a name search. Other names are looked up once for all posts:
+    organizers repeat the same sponsor list in many posts, and /company/identify charges per
+    match. Venues and media partners don't pay, so they aren't counted. Unresolved brands are
+    saved as "cannot verify" under "unresolved".
     """
-    extracted = extract.extract(post, db, run_id, call_model)
-    names = [m["name"] for m in extracted["sponsor_mentions"]]
-    matches = match.match_names(names, client, ig_config) if names else []
-    facts, leads = ig.build_records(post, extracted, matches, retrieved_at)
+    extracted = [extract.extract(post, db, run_id, call_model) for post, _ in posts]
+    tag_matches = [{m["name"]: tagged_match(m["name"], post.get("tagged") or {}) for m in ex["sponsor_mentions"]}
+                   for (post, _), ex in zip(posts, extracted)]
+    names = sorted({name for found in tag_matches for name, m in found.items() if m is None})
+    by_name = dict(zip(names, match.match_names(names, client, ig_config))) if names else {}
 
-    for lead in leads:
-        if lead.kind == "sponsor":
-            evidence.save(db, run_id, "unresolved", evidence.cannot_verify(
-                f"{lead.sponsor_name_as_written} sponsored {lead.event_name or 'an event'}", lead.reason,
-                lead.source_url, source_type, retrieved_at, lead.evidence_text or "", lead.sponsor_name_as_written))
+    hits = []
+    for (post, retrieved_at), ex, found in zip(posts, extracted, tag_matches):
+        matches = [found[m["name"]] or by_name[m["name"]] for m in ex["sponsor_mentions"]]
+        facts, leads = ig.build_records(post, ex, matches, retrieved_at)
+        for f in facts:
+            f.value["matched_by"] = "tagged in the post" if found[f.value["sponsor_name_as_written"]]                 else "company_identify"
+        for lead in leads:
+            if lead.kind == "sponsor":
+                evidence.save(db, run_id, "unresolved", evidence.cannot_verify(
+                    f"{lead.sponsor_name_as_written} sponsored {lead.event_name or 'an event'}", lead.reason,
+                    lead.source_url, source_type, retrieved_at, lead.evidence_text or "",
+                    lead.sponsor_name_as_written))
+        hits += [Hit(f.value["crustdata_company_id"], f.value["sponsor_name_as_written"], "past_sponsor",
+                     "past_sponsorships", [replace(f, source_type=source_type)])
+                 for f in facts if f.value["role"] not in cfg["past_sponsors"]["not_sponsor_roles"]]
+    return hits
 
-    return [Hit(f.value["crustdata_company_id"], f.value["sponsor_name_as_written"], "past_sponsor",
-                "past_sponsorships", [replace(f, source_type=source_type)])
-            for f in facts]
+
+def tagged_match(name: str, tagged: dict[int, str]) -> dict[str, Any] | None:
+    """The one tagged company whose name starts with this name, or vice versa
+    ("LanceSoft" -> "LanceSoft India"). None if no tag, or more than one, fits."""
+    key = company_key(name)
+    fits = [(company_id, tagged_name) for company_id, tagged_name in tagged.items()
+            if key and _same_start(key, company_key(tagged_name))]
+    if len(fits) != 1:
+        return None
+    company_id, tagged_name = fits[0]
+    return {"match_status": "matched", "crustdata_company_id": company_id, "company_name": tagged_name,
+            "confidence_score": None, "normalised_name": key, "candidates": 1}
+
+
+def _same_start(a: str, b: str) -> bool:
+    return a == b or a.startswith(b + " ") or b.startswith(a + " ")
 
 
 def linkedin_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, run_id: str,
@@ -161,22 +194,43 @@ def linkedin_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, run
                 {"field": "text", "type": "[.]", "value": cfg["country"]},
             ]},
         ]},
-        "fields": ["share_url", "text", "date_posted", "actor"],
+        "fields": ["share_url", "text", "date_posted", "actor", "mentions"],
         "sorts": [{"field": "date_posted", "order": "desc"}],
         "limit": past["linkedin_posts"],
     }
     response = client.call("/social_post/search", body)
+    raw_posts = response.data.get("posts") or []
 
-    hits = []
-    for p in response.data.get("posts") or []:
-        post = {
-            "url": p["share_url"], "parse_status": "ok", "shortcode": p["share_url"],
-            "handle": (p.get("actor") or {}).get("name"), "caption": p.get("text") or "",
-            "taken_at": _unix(p.get("date_posted")),
-        }
-        hits += sponsors_in_post(post, response.retrieved_at, "linkedin_post", db, run_id, client,
-                                 ig_config, call_model)
-    return hits
+    # The post's author and the companies it tags are exact Crustdata company IDs.
+    tagged_ids = [_tagged_ids(p) for p in raw_posts]
+    names = company_names(sorted({i for ids in tagged_ids for i in ids}), client)
+
+    posts = [({"url": p["share_url"], "parse_status": "ok", "shortcode": p["share_url"],
+               "handle": (p.get("actor") or {}).get("name"), "caption": p.get("text") or "",
+               "taken_at": _unix(p.get("date_posted")),
+               "tagged": {i: names[i] for i in ids if i in names}}, response.retrieved_at)
+             for p, ids in zip(raw_posts, tagged_ids)]
+    return sponsors_in_posts(posts, "linkedin_post", db, run_id, client, cfg, ig_config, call_model)
+
+
+def _tagged_ids(post: dict[str, Any]) -> list[int]:
+    actor = post.get("actor") or {}
+    ids = list((post.get("mentions") or {}).get("company_ids") or [])
+    if actor.get("actor_type") == "company" and actor.get("crustdata_entity_id"):
+        ids.append(actor["crustdata_entity_id"])
+    return ids
+
+
+def company_names(company_ids: list[int], client: Any) -> dict[int, str]:
+    """Names for company IDs (base price, ~0.03 credits each)."""
+    names: dict[int, str] = {}
+    for i in range(0, len(company_ids), 100):
+        chunk = company_ids[i:i + 100]
+        body = {"filters": {"field": "crustdata_company_id", "type": "in", "value": chunk},
+                "fields": ["crustdata_company_id", "basic_info.name"], "limit": len(chunk)}
+        for c in client.call("/company/search", body).data.get("companies") or []:
+            names[c["crustdata_company_id"]] = c["basic_info"]["name"]
+    return names
 
 
 def instagram_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, run_id: str,
@@ -193,16 +247,13 @@ def instagram_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, ru
             if m and m.group(0) not in urls:
                 urls.append(m.group(0))
 
-    hits = []
+    posts = []
     for url in urls[: past["instagram_posts"]]:
         response = client.call("/web/enrich/live", {"urls": [url]})
         page = (response.data or [{}])[0]
-        if not (page.get("success") and page.get("content")):
-            continue
-        post = {"url": url, **parse_post(page["content"], url)}
-        hits += sponsors_in_post(post, response.retrieved_at, "instagram_post", db, run_id, client,
-                                 ig_config, call_model)
-    return hits
+        if page.get("success") and page.get("content"):
+            posts.append(({"url": url, **parse_post(page["content"], url)}, response.retrieved_at))
+    return sponsors_in_posts(posts, "instagram_post", db, run_id, client, cfg, ig_config, call_model)
 
 
 # -- pools: company search and look-alikes ------------------------------------
@@ -286,11 +337,20 @@ def merge(hits: list[Hit], brief: Brief, cfg: dict[str, Any]) -> list[Candidate]
             facts.setdefault((hit.company_id, hit.signal), []).extend(hit.facts)
 
     for (company_id, signal), signal_facts in facts.items():
-        verified = {f.source_url for f in signal_facts if f.status == "verified"}
+        verified = {_source_key(f) for f in signal_facts if f.status == "verified"}
         value = min(1.0, len(verified) / full_at[signal]) if verified else None
         by_id[company_id].signals.append(Signal(signal, value, signal_facts))
 
     return [by_id[k] for k in sorted(by_id)]
+
+
+def _source_key(fact: Evidence) -> str:
+    """What makes two facts independent. Organizers post the same sponsor list many times
+    (speaker spotlights, countdowns), so all posts by one organizer count once. This can
+    undercount, which is safer than counting one sponsorship eight times."""
+    if isinstance(fact.value, dict) and fact.value.get("organizer_handle"):
+        return "organizer:" + fact.value["organizer_handle"].casefold()
+    return fact.source_url
 
 
 # -- the whole block ----------------------------------------------------------

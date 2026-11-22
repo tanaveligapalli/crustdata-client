@@ -19,7 +19,10 @@ FIXTURES = ROOT / "tests" / "fixtures"
 RETRIEVED = "2026-11-22T09:00:00+00:00"
 CFG = candidates.load_config()
 IG_CONFIG = {"match": {"min_confidence": 0.8, "ambiguity_margin": 0.05, "identify_batch_size": 25}}
-COMPANY_IDS = {"Sunalco": 42, "LanceSoft": 1266602}  # what the fake /company/identify knows
+COMPANY_IDS = {"LanceSoft": 1266602, "FICCI": 77, "The Forum": 55}  # what the fake /company/identify knows
+# Company IDs in the post fixture: Sunalco is tagged in the first post, LanceSoft wrote the second.
+COMPANY_NAMES = {64995777: "Sunalco Alloys Private Limited", 1266602: "LanceSoft India",
+                 4316132: "Bureau of Middle East Recycling"}
 
 
 def fixture(name):
@@ -40,9 +43,11 @@ class FakeClient:
     def __init__(self, failing=()):
         self.failing = set(failing)
         self.paths = []
+        self.bodies = []
 
     def call(self, path, body):
         self.paths.append(path)
+        self.bodies.append(body)
         if path in self.failing:
             raise SourceUnavailable(503, "down", path)
         return ApiResponse(self.answer(path, body), RETRIEVED, from_cache=False, credits=0)
@@ -60,6 +65,9 @@ class FakeClient:
                 {"confidence_score": 1.0, "company_data": {"crustdata_company_id": COMPANY_IDS[name],
                                                            "basic_info": {"name": name}}}]}
                 for name in body["names"] if name in COMPANY_IDS]
+        if path == "/company/search" and body["filters"].get("field") == "crustdata_company_id":
+            return {"companies": [{"crustdata_company_id": i, "basic_info": {"name": COMPANY_NAMES[i]}}
+                                  for i in body["filters"]["value"] if i in COMPANY_NAMES]}
         if path == "/company/search":
             return {"companies": [{"crustdata_company_id": 7, "basic_info": {"name": "Acme Bank"},
                                    "taxonomy": {"professional_network_industries": ["Banking"]}}]}
@@ -75,10 +83,14 @@ def fake_model(system, user):
         mentions = [{"name": "Sunalco", "role": "gifting",
                      "evidence_span": "welcome Sunalco as the Gift Sponsor"},
                     {"name": "Sunalco Alloys Private Limited", "role": "gifting",
-                     "evidence_span": "Sunalco Alloys Private Limited"}]
+                     "evidence_span": "Sunalco Alloys Private Limited"},
+                    {"name": "The Forum", "role": "venue",
+                     "evidence_span": "The Forum- Hotel & Convention"}]
     if "As a Gold Sponsor, LanceSoft" in user:
         mentions = [{"name": "LanceSoft", "role": "other",
-                     "evidence_span": "As a Gold Sponsor, LanceSoft was proud"}]
+                     "evidence_span": "As a Gold Sponsor, LanceSoft was proud"},
+                    {"name": "FICCI", "role": "other", "evidence_span": "FICCI"},
+                    {"name": "BRICS", "role": "other", "evidence_span": "BRICS Conference 2026"}]
     return json.dumps({"event_name": None, "event_dates": [], "city": None, "organizer_handle": "x",
                        "sponsor_mentions": mentions, "sponsor_ask": False, "contact_hint": None}), 0.001
 
@@ -112,18 +124,37 @@ class PostPoolTest(unittest.TestCase):
         hits = candidates.linkedin_sponsor_pool(brief(), FakeClient(), self.db, "run-1", CFG,
                                                 IG_CONFIG, fake_model)
 
-        self.assertEqual(sorted(h.company_id for h in hits), [42, 1266602])
-        fact = next(h for h in hits if h.company_id == 42).facts[0]
+        self.assertEqual(sorted({h.company_id for h in hits}), [77, 1266602, 64995777])
+        fact = next(h for h in hits if h.name == "Sunalco").facts[0]
         self.assertEqual(fact.status, "verified")
         self.assertEqual(fact.source_type, "linkedin_post")
         self.assertEqual(fact.quote, "welcome Sunalco as the Gift Sponsor")
         self.assertTrue(fact.record_date.startswith("2026-09-16"))
 
+    def test_a_tagged_company_or_the_author_resolves_without_a_name_search(self):
+        hits = candidates.linkedin_sponsor_pool(brief(), FakeClient(), self.db, "run-1", CFG,
+                                                IG_CONFIG, fake_model)
+        how = {h.name: h.facts[0].value["matched_by"] for h in hits}
+        self.assertEqual(how["Sunalco"], "tagged in the post")      # tagged in the post
+        self.assertEqual(how["LanceSoft"], "tagged in the post")    # the post's author
+        self.assertEqual(how["FICCI"], "company_identify")
+
+    def test_untagged_names_are_looked_up_once_for_all_posts(self):
+        client = FakeClient()
+        candidates.linkedin_sponsor_pool(brief(), client, self.db, "run-1", CFG, IG_CONFIG, fake_model)
+        lookups = [b["names"] for path, b in zip(client.paths, client.bodies) if path == "/company/identify"]
+        self.assertEqual(lookups, [["BRICS", "brics", "FICCI", "ficci", "The Forum", "the forum"]])
+
+    def test_a_venue_is_not_counted_as_a_sponsor(self):
+        hits = candidates.linkedin_sponsor_pool(brief(), FakeClient(), self.db, "run-1", CFG,
+                                                IG_CONFIG, fake_model)
+        self.assertNotIn(55, [h.company_id for h in hits])
+
     def test_a_brand_with_no_company_record_is_kept_as_cannot_verify(self):
         candidates.linkedin_sponsor_pool(brief(), FakeClient(), self.db, "run-1", CFG, IG_CONFIG, fake_model)
 
         unresolved = evidence.load(self.db, "run-1", "unresolved")
-        self.assertEqual([f.value for f in unresolved], ["Sunalco Alloys Private Limited"])
+        self.assertEqual([f.value for f in unresolved], ["BRICS"])
         self.assertEqual(unresolved[0].status, "cannot_verify")
 
 
@@ -146,6 +177,18 @@ class MergeTest(unittest.TestCase):
         signal = candidates.merge(hits, brief(), CFG)[0].signals[0]
         self.assertEqual(signal.value, 0.5)  # one distinct source; 2 make it 1.0
         self.assertEqual(len(signal.evidence), 2)
+
+    def test_many_posts_by_one_organizer_count_once(self):
+        def post_fact(url, organizer):
+            fact = self.fact(url)
+            fact.value = {"organizer_handle": organizer, "role": "title"}
+            return fact
+
+        hits = [Hit(7, "Acme", "past_sponsor", "past_sponsorships", [post_fact(f"https://a.in/{i}", "SmartMeter")])
+                for i in range(8)]
+        hits.append(Hit(7, "Acme", "past_sponsor", "past_sponsorships", [post_fact("https://b.in/1", "ISODA")]))
+        self.assertEqual(candidates.merge(hits, brief(), CFG)[0].signals[0].value, 1.0)
+        self.assertEqual(candidates.merge(hits[:8], brief(), CFG)[0].signals[0].value, 0.5)
 
     def test_only_unverified_facts_leave_the_signal_unknown(self):
         hits = [Hit(7, "Acme", "past_sponsor", "past_sponsorships", [self.fact("https://a.in/1", "no")])]

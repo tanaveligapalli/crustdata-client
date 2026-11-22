@@ -61,6 +61,7 @@ candidates:                  # block 3: candidate pools
   past_sponsors:
     days: 365
     sponsor_words: [sponsor, sponsors, sponsored, sponsorship]
+    not_sponsor_roles: [venue, media]   # block 3b roles that don't pay, so don't count
     event_words:
       conference: [conference, summit]
       concert: [concert, music festival]

@@ -140,6 +140,7 @@ The model only **extracts and drafts**. Scoring and decisions are plain code, so
 - **Job search:** many postings come from Indeed with `crustdata_company_id = null`. Filter `job_details.source = "professional_network"` (LinkedIn) to get company IDs. India, last 30 days, sponsorship/partnerships/brand roles on LinkedIn: ~90 postings (22 Nov).
 - **Post search country:** `actor.location.country` is stored as `"IND"` (`"IN"` and `"India"` return 0). Many company authors have no location, so OR it with `text [.] "India"`.
 - **Company search:** `basic_info.industries` values are a closed set: check with company autocomplete. Industries come back under `taxonomy.professional_network_industries` (+0.1 credits/result). Job search returns `company.basic_info.industries` at base price.
+- **Post IDs:** a company author's `actor.crustdata_entity_id` and the post's `mentions.company_ids` are Crustdata company IDs (checked: LanceSoft India 1266602, Sunalco Alloys 64995777). Request `mentions` in `fields`.
 - **Filter operators:** `=`, `in`, `=>` (not `>=`), `[.]` exact phrase, `(.)` all words (fuzzy).
 - **Costs:** company search 0.03/result, person search 0.03/result (+0.1 if you filter on title), social post 0.5/post, web search 1/query, web fetch 1/page, company identify 0.2/match, business email +1.
 
@@ -198,7 +199,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Diagram: components, data flow, where Crustdata/web/model calls, approvals, retries and the ledger sit. Excalidraw or Mermaid, link open to anyone.
 - Business case: buyer = event organizers/agencies running several medium events a year; price in ₹ (per-event fee + success fee) vs. measured cost per job from the ledger.
 
-### Block 3 · Candidate pools (done, except a live run of the post pools)
+### Block 3 · Candidate pools (done)
 - **File:** `candidates.py` (+ the `candidates` section in `config.yaml`).
 - **Use:** `candidates.find_candidates(brief, client, db, run_id, candidates.load_config(), instagram_sponsors.load_config(), call_model)` → `(candidates, failed_pools)`.
   - One `Candidate` per Crustdata company ID, sorted by ID, with `found_by`, `domain`, `industries` and `signals`. Feed it straight to `scoring.rank`.
@@ -207,13 +208,21 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   - `call_model=None` skips the two post pools and lists them in `failed_pools`.
 - **Pools:**
   - `hiring`: LinkedIn job postings for sponsorship/partnerships/brand roles in the country, last 30 days.
-  - `past_sponsor`: sponsors named in LinkedIn posts (`/social_post/search`) and in Instagram posts found by web search. Both go through block 3b's extraction and name matching.
+  - `past_sponsor`: sponsors named in LinkedIn posts (`/social_post/search`) and in Instagram posts found by web search. Both go through block 3b's extraction (the model reads, code checks each name is in the text).
+    - Name → company: on LinkedIn, a name that matches exactly one company **the post tags, or the post's author**, takes that company's ID (`matched_by: "tagged in the post"`). Other names go through block 3b's `/company/identify` matching once per pool, not once per post.
+    - Roles in `not_sponsor_roles` (venue, media) don't count: they rarely pay.
+    - All posts by one organizer count as **one** sponsorship. Organizers repost the same sponsor list (speaker spotlights, countdowns); counting each post would inflate the signal.
   - `host_past_sponsor`: the brief's `past_sponsors`, resolved to company IDs.
   - `lookalike`: companies in the same industries as those past sponsors.
   - `company_search`: companies in the profile's industries (`config.yaml`) with an office in the event city.
 - **Signals it fills:** `past_sponsorships`, `active_hiring`, `city_presence` (a job posting in the event city). Value = verified facts from distinct sources ÷ `signals_full_at` (max 1.0). No verified fact → no value (unknown, never 0).
 - **Not filled yet:** `budget`, `audience_fit`, `reachable_contact`. Scoring treats them as unknown, which lowers confidence but not the score.
-- **Live run (22 Nov, Bengaluru fintech summit, no model):** 132 candidates for 9.5 credits. The post pools are tested offline only: the Anthropic SDK and key aren't set up on this machine yet.
+- **Live runs (22 Nov):**
+  - Bengaluru fintech summit, all pools: 158 candidates. The first run of the post pools cost ~37 credits (LinkedIn posts 20, identify 7, company search 2, web search/fetch ~8) and ~$0.59 of model calls; reruns hit the caches.
+  - Conference posts: 20 LinkedIn posts → 26 sponsor companies (Smart Meter Summit, ISODA United Summit, NABH, BMR...), 24 of them resolved by post tags. 4 Instagram posts → 1 (Hashout Technologies).
+  - Concert posts are noisy: 20 LinkedIn posts → 7 companies, some not Indian events (IMMA Dublin). 3 Instagram posts → 0. As expected from the post counts in section 4.
+  - 14 brands came out `cannot_verify` (e.g. LanceSoft: the post tags both LanceSoft India and LanceSoft, Inc., so we don't pick one).
+- **For block 4 (scoring):** a company with one strong known signal outranks one with several medium ones, because unknown weights are rescaled away. In the live run, companies with only `active_hiring` + `city_presence` (confidence 0.25) took the top spots above sourced past sponsors. Consider weighting the score by confidence, or shrinking low-confidence scores.
 
 **Done:** fixtures capture, block 2 (evidence ledger, `evidence.py`), block 3 (candidate pools, `candidates.py`).
 

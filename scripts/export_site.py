@@ -10,6 +10,11 @@ machine, as JSON files beside the page, and the page reads them. Nothing in the 
 spend credits or send email: there is no server behind it.
 
 Pitches and the pipeline are left out: they name real people (the contacts we found).
+
+Live instead of read-only: `python scripts/export_site.py --backend https://<tunnel>` writes
+only the page plus a Netlify proxy rule, so every /api call goes to a running
+`web/server.py` (e.g. this laptop through `cloudflared tunnel --url http://127.0.0.1:8000`).
+Then the Netlify page can search, draft and send, and spends credits: share it with care.
 """
 
 from __future__ import annotations
@@ -65,10 +70,26 @@ def export(out: Path = OUT, db_path: Path = agent_db.DEFAULT_PATH) -> list[str]:
     return [e["name"] for e in examples]
 
 
+def export_live(backend: str, out: Path = OUT) -> None:
+    """The page only; Netlify proxies /api/* to the live server at `backend`."""
+    shutil.rmtree(out, ignore_errors=True)
+    shutil.copytree(server.STATIC, out)
+    (out / "_redirects").write_text(f"/api/*  {backend.rstrip('/')}/api/:splat  200\n", encoding="utf-8")
+
+
 def write(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    names = export()
-    print(f"site/ ready with {len(names)} events: {', '.join(names)}")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build site/ for Netlify.")
+    parser.add_argument("--backend", help="a live web/server.py URL to proxy /api/* to (instead of a read-only copy)")
+    args = parser.parse_args()
+    if args.backend:
+        export_live(args.backend)
+        print(f"site/ ready: the page, with /api/* proxied to {args.backend}")
+    else:
+        names = export()
+        print(f"site/ ready with {len(names)} events: {', '.join(names)}")

@@ -66,6 +66,20 @@ because they name real contacts. To add an event, run it once on the live server
 again. `netlify.toml` points Netlify at `site/`; `site/` itself isn't in git (it's built from the
 local database), so deploy it from this machine.
 
+**Live on Netlify instead (like the demo video):** Netlify hosts the page and forwards every
+`/api/` call to the real server on a laptop through a tunnel, so search, Debug, Pitch and Send
+all work. The laptop must stay on, and anyone with the link can spend credits (150 per search).
+
+```
+python web/server.py --debug                                   # terminal 1
+ssh -R 80:127.0.0.1:8000 nokey@localhost.run                   # terminal 2: prints https://<id>.lhr.life
+python scripts/export_site.py --backend https://<id>.lhr.life   # then drag site/ onto the Netlify site
+```
+
+On networks that allow it, `cloudflared tunnel --url http://127.0.0.1:8000` works too (the BITS
+network blocks its port 7844). A free tunnel's address changes when it restarts: rebuild and
+redeploy `site/` each time, or use a tunnel with a fixed address (e.g. an ngrok free static domain).
+
 ## The job and who pays for it today
 
 An event host needs sponsors. Someone has to find companies likely to sponsor this kind of

@@ -143,6 +143,14 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Reply classification → one of `OUTREACH_STATES`. Answer questions only with facts from the `Brief` (tiers, prices, audience). "Interested" → book a meeting (calendar invite `.ics` or a booking link). "Negotiating" → hand to the host.
 - Max 2 follow-ups; opt-out line in every email; opted-out companies are never emailed again.
 - **Done when:** a teammate replying as the sponsor drives a deal to `meeting_booked`, and killing the process mid-campaign then restarting sends nothing twice.
+- **Built (`outreach.py`, `tests/test_outreach.py`).** Set env `OUTREACH_SENDER`, `OUTREACH_TEAM_INBOX`, `OUTREACH_APP_PASSWORD`, then:
+  ```python
+  contact = outreach.find_contact(client, candidate, cfg)          # /person/search; business email not on our plan
+  outreach.start_campaign(db, run_id, brief, [(candidate, contact)], cfg,
+                          outreach.smtp_sender(cfg), model=outreach.anthropic_caller(cfg), host_check=host_evidence)
+  ```
+  `python outreach.py replies RUN brief.json` · `python outreach.py follow-ups RUN brief.json` · `python outreach.py status RUN`.
+  Outreach refuses to start until `host_check` is verified `Evidence` (`require_verified_host: false` to bypass while `host_check.py` is unbuilt).
 
 ### Host verification (small)
 - **File:** `host_check.py`. `/company/identify` on the host's domain + web fetch of its site → `Evidence`. Not verified → outreach is blocked with the reason.

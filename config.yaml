@@ -52,6 +52,18 @@ scoring:                     # block 4: weights per profile; each profile sums t
 candidates:                  # block 3: candidate pools
   country: India
   country_code: IND          # how Crustdata stores the country on post authors
+  city_aliases:              # other names for one city: the brief and LinkedIn may use either
+    - [Bengaluru, Bangalore]
+    - [Mumbai, Bombay]
+    - [Gurugram, Gurgaon]
+    - [Kolkata, Calcutta]
+    - [Chennai, Madras]
+    - [Puducherry, Pondicherry]
+    - [Thiruvananthapuram, Trivandrum]
+    - [Kochi, Cochin]
+    - [Vadodara, Baroda]
+    - [Mysuru, Mysore]
+    - [Prayagraj, Allahabad]
   signals_full_at:           # verified facts (distinct sources) that make a signal 1.0
     past_sponsorships: 2
     active_hiring: 3

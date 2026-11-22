@@ -107,6 +107,17 @@ class HiringPoolTest(unittest.TestCase):
         self.assertEqual(fact.record_date, "2026-11-19T19:24:11")
         self.assertEqual(biggbell[0].signal, "active_hiring")
 
+    def test_the_old_name_of_a_city_matches_its_new_name(self):
+        # The brief says "Gurgaon"; LinkedIn lists the posting in "Gurugram".
+        hits = candidates.hiring_pool(brief(city="Gurgaon"), FakeClient(), CFG)
+        self.assertEqual({h.name for h in hits if h.signal == "city_presence"}, {"Axis Max Life Insurance Limited"})
+
+    def test_company_search_looks_for_every_name_of_the_city(self):
+        client = FakeClient()
+        candidates.company_search_pool(brief(city="Bangalore"), client, CFG, ["Banking"], "company_search")
+        office = client.bodies[0]["filters"]["conditions"][-1]
+        self.assertEqual(sorted(c["value"] for c in office["conditions"]), ["Bangalore", "Bengaluru"])
+
     def test_a_posting_in_the_event_city_is_a_city_presence_fact(self):
         hits = candidates.hiring_pool(brief(city="noida"), FakeClient(), CFG)
         city_ids = {h.company_id for h in hits if h.signal == "city_presence"}

@@ -66,6 +66,15 @@ def _since(days: int, today: date | None = None) -> str:
     return ((today or date.today()) - timedelta(days=days)).isoformat()
 
 
+def city_names(city: str, cfg: dict[str, Any]) -> list[str]:
+    """The city and its other names ("Bangalore" -> Bangalore, Bengaluru), from config.yaml.
+    Hosts and LinkedIn often use different ones."""
+    for names in cfg.get("city_aliases") or []:
+        if city.casefold() in {n.casefold() for n in names}:
+            return [city] + [n for n in names if n.casefold() != city.casefold()]
+    return [city]
+
+
 def _any_of(field_name: str, op: str, values: list[str]) -> dict[str, Any]:
     return {"op": "or", "conditions": [{"field": field_name, "type": op, "value": v} for v in values]}
 
@@ -111,7 +120,7 @@ def hiring_pool(brief: Brief, client: Any, cfg: dict[str, Any], today: date | No
         hits.append(Hit(company_id, name, "hiring", "active_hiring", [fact], **about))
 
         city = (job.get("location") or {}).get("city")
-        if brief.city and city and city.casefold() == brief.city.casefold():
+        if brief.city and city and city.casefold() in {n.casefold() for n in city_names(brief.city, cfg)}:
             fact = evidence.from_api("/job/search", response, f"job_listings[{i}].location.city", city,
                                      f"{name} is hiring in {city}", posted, source_url=url)
             hits.append(Hit(company_id, name, "hiring", "city_presence", [fact], **about))
@@ -277,7 +286,9 @@ def company_search_pool(brief: Brief, client: Any, cfg: dict[str, Any], industri
         {"field": "basic_info.employee_count_range", "type": "in", "value": search["employee_ranges"]},
     ]
     if brief.city:
-        conditions.append({"field": "locations.all_office_addresses", "type": "(.)", "value": brief.city})
+        names = city_names(brief.city, cfg)
+        offices = [{"field": "locations.all_office_addresses", "type": "(.)", "value": n} for n in names]
+        conditions.append(offices[0] if len(offices) == 1 else {"op": "or", "conditions": offices})
     body = {"filters": {"op": "and", "conditions": conditions},
             "fields": DESCRIBE_FIELDS,
             "sorts": [{"field": "headcount.total", "order": "desc"}],

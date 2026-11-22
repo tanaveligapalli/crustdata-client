@@ -10,11 +10,11 @@ sys.path.insert(0, str(ROOT))
 import scoring  # noqa: E402
 from records import Brief, Candidate, Evidence, Signal  # noqa: E402
 
+WEIGHTS = {"past_sponsorships": 0.30, "audience_fit": 0.25, "active_hiring": 0.15,
+           "budget": 0.15, "city_presence": 0.10, "reachable_contact": 0.05}
 CONFIG = {
-    "profiles": {
-        "conference": {"past_sponsorships": 0.30, "audience_fit": 0.25, "active_hiring": 0.15,
-                       "budget": 0.15, "city_presence": 0.10, "reachable_contact": 0.05},
-    },
+    "weights": {"company": WEIGHTS, "ngo": WEIGHTS},
+    "default_host_type": "company",
     "restricted_categories": ["tobacco"],
     "category_keywords": {"alcohol": ["alcohol", "wine", "spirit", "beer"], "tobacco": ["tobacco"]},
 }
@@ -68,9 +68,9 @@ class ScoreTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 scoring.score(candidate(1, signals=signals), brief(), CONFIG)
 
-    def test_unknown_profile_raises(self):
+    def test_unknown_host_type_raises(self):
         with self.assertRaises(ValueError):
-            scoring.score(candidate(1), brief(profile="wedding"), CONFIG)
+            scoring.score(candidate(1), brief(host_type="temple"), CONFIG)
 
     def test_score_does_not_change_its_input(self):
         c = candidate(1, signals=[signal("budget", 0.5)])
@@ -116,7 +116,7 @@ class FilterTest(unittest.TestCase):
 
 
 class RankTest(unittest.TestCase):
-    def test_order_score_then_confidence_then_id_with_excluded_kept_last(self):
+    def test_order_evidence_score_then_confidence_then_id_with_excluded_kept_last(self):
         cands = [
             candidate(5, signals=[signal("budget", 0.5)]),                               # 0.5, conf 0.15
             candidate(4, signals=[signal("budget", 0.5), signal("city_presence", 0.5)]),  # 0.5, conf 0.25
@@ -135,14 +135,27 @@ class RankTest(unittest.TestCase):
         self.assertEqual(ranked[1].excluded_reason, "duplicate of company 7")
 
 
+    def test_a_sourced_past_sponsor_outranks_a_company_that_is_only_hiring(self):
+        hiring_only = candidate(1, signals=[signal("active_hiring", 1.0), signal("city_presence", 1.0)])
+        past_sponsor = candidate(2, signals=[signal("past_sponsorships", 0.5)])
+        ranked = scoring.rank([hiring_only, past_sponsor], brief(), scoring.load_config())
+        self.assertEqual([c.company_id for c in ranked], [2, 1])
+        self.assertEqual(ranked[1].score, 1.0)   # its score still says "what we know is strong"
+
+
 class RealConfigTest(unittest.TestCase):
-    def test_each_profile_has_the_same_signals_and_sums_to_one(self):
+    def test_each_host_type_has_the_same_signals_and_sums_to_one(self):
         config = scoring.load_config()
-        self.assertEqual(set(config["profiles"]), {"conference", "concert"})
-        names = [set(w) for w in config["profiles"].values()]
-        self.assertEqual(names[0], names[1])
-        for weights in config["profiles"].values():
+        self.assertEqual(set(config["weights"]), {"university", "ngo", "company", "community"})
+        names = [set(w) for w in config["weights"].values()]
+        self.assertTrue(all(n == names[0] for n in names))
+        for weights in config["weights"].values():
             self.assertAlmostEqual(sum(weights.values()), 1.0)
+        self.assertIn(config["default_host_type"], config["weights"])
+
+    def test_past_sponsorships_weigh_most_for_every_host_type(self):
+        for host_type, weights in scoring.load_config()["weights"].items():
+            self.assertEqual(max(weights, key=weights.get), "past_sponsorships", host_type)
 
 
 if __name__ == "__main__":

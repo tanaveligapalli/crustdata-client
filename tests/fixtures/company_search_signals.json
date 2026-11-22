@@ -1,0 +1,116 @@
+{
+  "companies": [
+    {
+      "crustdata_company_id": 2289,
+      "metadata": {
+        "updated_at": "2026-11-22T06:26:13Z"
+      },
+      "basic_info": {
+        "name": "ITC Limited",
+        "professional_network_url": "https://www.linkedin.com/company/itc-limited",
+        "markets": [
+          "NBO"
+        ]
+      },
+      "revenue": {
+        "public_markets": {
+          "ipo_date": "1999-01-01",
+          "stock_symbols": [
+            "ITC"
+          ],
+          "fiscal_year_end": null
+        }
+      },
+      "headcount": {
+        "total": 63554,
+        "growth_percent": {
+          "1m": 0.5569444004936552,
+          "3m": 1.3782102408677621,
+          "6m": 3.8209589152985375,
+          "12m": 9.002658434096562
+        }
+      },
+      "funding": {
+        "last_fundraise_date": "2024-03-13",
+        "last_round_type": "post_ipo_secondary"
+      },
+      "followers": {
+        "count": 3833884
+      }
+    },
+    {
+      "crustdata_company_id": 5708,
+      "metadata": {
+        "updated_at": "2026-11-22T06:26:13Z"
+      },
+      "basic_info": {
+        "name": "Navi",
+        "professional_network_url": "https://www.linkedin.com/company/go-navi",
+        "markets": [
+          "PRIVATE"
+        ]
+      },
+      "revenue": {
+        "public_markets": {
+          "ipo_date": null,
+          "stock_symbols": [],
+          "fiscal_year_end": null
+        }
+      },
+      "headcount": {
+        "total": 3481,
+        "growth_percent": {
+          "1m": 1.103688643624746,
+          "3m": 2.775317390020667,
+          "6m": 6.4525993883792045,
+          "12m": 16.343582887700535
+        }
+      },
+      "funding": {
+        "last_fundraise_date": "2026-08-19",
+        "last_round_type": "series_unknown"
+      },
+      "followers": {
+        "count": 862704
+      }
+    },
+    {
+      "crustdata_company_id": 897127,
+      "metadata": {
+        "updated_at": "2026-11-22T06:26:13Z"
+      },
+      "basic_info": {
+        "name": "Razorpay",
+        "professional_network_url": "https://www.linkedin.com/company/razorpay",
+        "markets": [
+          "PRIVATE"
+        ]
+      },
+      "revenue": {
+        "public_markets": {
+          "ipo_date": null,
+          "stock_symbols": [],
+          "fiscal_year_end": null
+        }
+      },
+      "headcount": {
+        "total": 4038,
+        "growth_percent": {
+          "1m": 0.2731561956791656,
+          "3m": 0.4727544165215228,
+          "6m": -1.0779029887310143,
+          "12m": -2.2276029055690074
+        }
+      },
+      "funding": {
+        "last_fundraise_date": "2022-05-10",
+        "last_round_type": "secondary_market"
+      },
+      "followers": {
+        "count": 1337219
+      }
+    }
+  ],
+  "next_cursor": "H4sIAAAAAAAA_xTJzQrCMAwA4FcpOe_Qpv97FZGRJg07iMWtO4j47uL5-8Dr6sd72-ncYTXg1Qq5KOQaphptiySsLatV162LGAsLBq3Ns-8-FayKlkLQJok4wGLgHMeE1dxKzQ7zfTEwx6THxuN6_sF_fwEAAP__U8V-anYAAAA=",
+  "total_count": 3
+}

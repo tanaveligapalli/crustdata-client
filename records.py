@@ -84,6 +84,7 @@ class Brief:
     current_sponsors: list[str] = field(default_factory=list)
     past_sponsors: list[str] = field(default_factory=list)
     excluded_categories: list[str] = field(default_factory=list)
+    host_type: str | None = None  # "university", "ngo", "company" or "community": picks the weights
 
 
 @dataclass

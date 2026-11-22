@@ -2,11 +2,17 @@
 
 Hard filters run first. An excluded candidate is kept with its reason and is not scored.
 
+Weights depend on the host type (university, NGO, company, community): config.yaml
+`scoring.weights`. A brief with no host type uses `default_host_type`.
+
 A signal counts as known only when it has a value AND at least one verified Evidence
-record (handbook: every fact is sourced). Unknown signals are left out and the known
-weights rescaled, so missing data never reads as a low score; `confidence` is the
-share of the profile's weight that was known. Confidence is shown next to the score
-and only breaks ties: it never pushes a candidate down the ranking.
+record (handbook: every fact is sourced). `score` is the weighted average of the known
+signals, so missing data never reads as a low value; `confidence` is the share of the
+weight that was known.
+
+Ranking uses `evidence_score` = score x confidence: the weighted sum of what is known.
+An unknown signal earns nothing, so one strong weak-signal (a job post) can't outrank a
+sourced past sponsorship, which carries the most weight. Unknowns are never stored as 0.
 
 "Category conflicts" here means categories the host rules out in the brief (e.g. a
 competitor of an exclusive sponsor) plus `restricted_categories` in config.yaml.
@@ -77,9 +83,10 @@ def hard_filter(candidate: Candidate, brief: Brief, config: dict[str, Any]) -> s
 
 def score(candidate: Candidate, brief: Brief, config: dict[str, Any]) -> Candidate:
     """Return a copy of the candidate with excluded_reason, or with score and confidence set."""
-    if brief.profile not in config["profiles"]:
-        raise ValueError(f"no weights for profile {brief.profile!r}")
-    weights: dict[str, float] = config["profiles"][brief.profile]
+    host_type = brief.host_type or config["default_host_type"]
+    if host_type not in config["weights"]:
+        raise ValueError(f"no weights for host type {host_type!r}")
+    weights: dict[str, float] = config["weights"][host_type]
 
     by_name = {}
     for s in candidate.signals:
@@ -106,10 +113,16 @@ def score(candidate: Candidate, brief: Brief, config: dict[str, Any]) -> Candida
     return replace(candidate, excluded_reason=None, score=value, confidence=confidence)
 
 
+def evidence_score(candidate: Candidate) -> float:
+    """The weighted sum of what is known (score x confidence): the ranking order."""
+    return round((candidate.score or 0) * (candidate.confidence or 0), 4)
+
+
 def rank(candidates: list[Candidate], brief: Brief, config: dict[str, Any]) -> list[Candidate]:
     """Score every candidate and sort best first: scored, then unscored, then excluded.
 
-    Ties break on confidence, then company ID, so the same inputs always give the same order.
+    Order: evidence_score, then confidence, then company ID, so the same inputs always
+    give the same order.
     """
     seen: set[int] = set()
     scored = []
@@ -121,4 +134,4 @@ def rank(candidates: list[Candidate], brief: Brief, config: dict[str, Any]) -> l
         seen.add(c.company_id)
         scored.append(score(c, brief, config))
     return sorted(scored, key=lambda c: (c.excluded_reason is not None, c.score is None,
-                                         -(c.score or 0), -(c.confidence or 0), c.company_id))
+                                         -evidence_score(c), -(c.confidence or 0), c.company_id))

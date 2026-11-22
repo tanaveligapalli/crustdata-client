@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable
@@ -22,11 +22,13 @@ from typing import Any, Callable
 import agent_db
 import brief as brief_mod
 import candidates as candidates_mod
+import company_signals
+import evidence
 import host_check
 import instagram_sponsors
 import outreach
 import scoring
-from crustdata_client import CrustdataClient
+from crustdata_client import CrustdataClient, SourceUnavailable
 from records import Brief, Candidate, Contact, Evidence, brief_from_dict, candidate_from_dict, contact_from_dict
 from src import extract
 from steps import run_step
@@ -60,7 +62,7 @@ def open_agent(description: str, offline: bool = False, credit_limit: float = 15
     outreach_config, email_ready = _outreach_config()
     config = {"brief": brief_mod.load_config(), "candidates": candidates_mod.load_config(),
               "instagram": instagram_sponsors.load_config(), "scoring": scoring.load_config(),
-              "outreach": outreach_config}
+              "company_signals": _section("company_signals"), "outreach": outreach_config}
     return Agent(run_id, offline, db, client, config, email_ready)
 
 
@@ -92,11 +94,42 @@ def find_candidates(agent: Agent, brief: Brief) -> tuple[list[Candidate], list[s
     def work() -> dict:
         found, failed = candidates_mod.find_candidates(brief, agent.client, agent.db, agent.run_id,
                                                        agent.config["candidates"], agent.config["instagram"], call)
+        found = add_company_signals(agent, brief, found, failed)
         return {"candidates": [asdict(c) for c in found], "failed_pools": failed}
 
     data = run_step(agent.db, agent.run_id, "candidates", work)
     found = [candidate_from_dict(c) for c in data["candidates"]]
     return scoring.rank(found, brief, agent.config["scoring"]), data["failed_pools"]
+
+
+def add_company_signals(agent: Agent, brief: Brief, found: list[Candidate], failed: list[str]) -> list[Candidate]:
+    """Company size, growth, funding, listing and social presence for every candidate; alumni
+    and CSR (costlier) only when the host type weighs them, and only for the top companies.
+    A source that keeps failing is added to `failed` and its signal stays unknown."""
+    cfg = agent.config["company_signals"]
+    weights = agent.config["scoring"]["weights"][brief.host_type or agent.config["scoring"]["default_host_type"]]
+
+    def attach(lookup: Callable[[], dict[int, list]], source: str) -> None:
+        nonlocal found
+        try:
+            extra = lookup()
+        except SourceUnavailable:
+            failed.append(source)
+            return
+        found = [replace(c, signals=c.signals + extra.get(c.company_id, [])) for c in found]
+        for company_id, signals in extra.items():
+            evidence.save(agent.db, agent.run_id, f"company:{company_id}", [f for s in signals for f in s.evidence])
+
+    def top(n: int) -> list[Candidate]:
+        ranked = scoring.rank(found, brief, agent.config["scoring"])
+        return [c for c in ranked if c.excluded_reason is None][:n]
+
+    attach(lambda: company_signals.company_facts([c.company_id for c in found], agent.client, cfg), "company data")
+    if weights.get("alumni"):
+        attach(lambda: company_signals.alumni(top(cfg["alumni_top"]), brief.host_name, agent.client, cfg), "alumni")
+    if weights.get("csr"):
+        attach(lambda: company_signals.csr(top(cfg["csr_top"]), agent.client), "CSR pages")
+    return found
 
 
 def find_contact(agent: Agent, candidate: Candidate) -> Contact | None:
@@ -161,6 +194,13 @@ def _pitch_model(agent: Agent) -> outreach.ModelCall | None:
     if agent.offline or not agent.config["outreach"].get("model"):
         return None
     return outreach.anthropic_caller(agent.config["outreach"])
+
+
+def _section(name: str) -> dict[str, Any]:
+    import yaml
+
+    with open(Path(__file__).resolve().parent / "config.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)[name]
 
 
 def _outreach_config() -> tuple[dict[str, Any], bool]:

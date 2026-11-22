@@ -24,23 +24,62 @@ brief:                       # block 4: host's description -> Brief
   profile_keywords:
     conference: [conference, summit, conclave, symposium, expo, forum, convention, hackathon, meetup, tech fest]
     concert: [concert, music festival, music fest, gig, live music, dj night, edm]
+  # The host type picks the scoring weights. Decided the same way, from the words describing the host.
+  host_type_keywords:
+    university: [university, college, institute, iit, iim, nit, bits, school of]
+    ngo: [ngo, non-profit, nonprofit, not-for-profit, foundation, trust, charity]
+    company: [pvt, ltd, limited, inc, llp, company, startup, corporation]
+    community: [club, community, association, chapter, meetup group, collective, society]
 
-scoring:                     # block 4: weights per profile; each profile sums to 1
-  profiles:
-    conference:
-      past_sponsorships: 0.30
-      audience_fit: 0.25
-      active_hiring: 0.15
-      budget: 0.15
+scoring:                     # block 4: weights per host type; each sums to 1
+  # Past sponsorships of similar events predict best, so they weigh most everywhere. Hiring is
+  # a weak "has budget now" hint. Every table lists every signal (0 = not used for that host).
+  weights:
+    university:
+      past_sponsorships: 0.40
+      alumni: 0.15
+      csr: 0.05
+      company_size: 0.10
+      funding: 0.05
+      listed: 0.05
+      social_presence: 0.05
+      active_hiring: 0.05
+      growth: 0.05
+      city_presence: 0.05
+    ngo:
+      past_sponsorships: 0.35
+      alumni: 0.0
+      csr: 0.25
+      company_size: 0.10
+      funding: 0.0
+      listed: 0.10
+      social_presence: 0.05
+      active_hiring: 0.05
+      growth: 0.05
+      city_presence: 0.05
+    company:
+      past_sponsorships: 0.40
+      alumni: 0.0
+      csr: 0.0
+      company_size: 0.10
+      funding: 0.10
+      listed: 0.05
+      social_presence: 0.10
+      active_hiring: 0.10
+      growth: 0.05
       city_presence: 0.10
-      reachable_contact: 0.05
-    concert:
-      past_sponsorships: 0.30
-      audience_fit: 0.20
-      active_hiring: 0.20
-      budget: 0.15
+    community:
+      past_sponsorships: 0.40
+      alumni: 0.0
+      csr: 0.0
+      company_size: 0.05
+      funding: 0.15
+      listed: 0.0
+      social_presence: 0.15
+      active_hiring: 0.10
+      growth: 0.05
       city_presence: 0.10
-      reachable_contact: 0.05
+  default_host_type: company   # briefs without a host type (e.g. the back-test's)
   restricted_categories: []  # excluded for every event; hosts add their own in the brief
   # Words to look for in a candidate's Crustdata industries, per category name.
   # A category not listed here is matched by its own name.
@@ -150,3 +189,13 @@ backtest:                    # block 5: do past events' real sponsors rank above
   min_decided_share: 0.2     # share of sponsor/non-sponsor pairs not tied (mostly ties = no signal)
   min_sponsors_with_history: 10   # real sponsors with an earlier sponsorship in the data (added after
                                   # a trial where 0 of 76 had one: no repeats means nothing to test)
+
+company_signals:             # company data, alumni and CSR signals (company_signals.py)
+  company_size_full_at: 10000    # headcount at which company_size is 1.0 (log scale: 100 -> 0.5)
+  followers_full_at: 1000000     # LinkedIn followers at which social_presence is 1.0 (log scale)
+  growth_span_percent: 20        # 12-month headcount growth: -20% -> 0, 0 -> 0.5, +20% -> 1
+  funding_months: [12, 24]       # raised within 12 months -> 1.0, within 24 -> 0.5, earlier -> 0.1
+  alumni_full_at: 20             # alumni working there now for alumni = 1.0
+  alumni_top: 40                 # alumni are counted for this many top companies (~0.23 credits each)
+  csr_top: 15                    # CSR pages are looked up for this many top companies (~2-3 credits each)
+  csr_sites: [bseindia.com, nseindia.com, csr.gov.in]   # besides the company's own domain

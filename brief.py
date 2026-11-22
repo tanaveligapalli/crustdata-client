@@ -27,19 +27,21 @@ from agent_db import now_iso
 from records import Brief, Tier
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
-PROMPT_VERSION = "v1"
-REQUIRED = ["event_name", "profile", "audience", "host_name"]
+PROMPT_VERSION = "v2"
+REQUIRED = ["event_name", "profile", "audience", "host_name", "host_type"]
 
 _STR = {"type": "string"}
 _NULLABLE_STRING = {"anyOf": [_STR, {"type": "null"}]}
 _STRINGS = {"type": "array", "items": _STR}
 KEYS = ["event_name", "event_type_quote", "event_date", "city", "audience_size_quote", "audience",
-        "host_name", "host_website", "tiers", "current_sponsors", "past_sponsors", "excluded_categories"]
+        "host_name", "host_type_quote", "host_website", "tiers", "current_sponsors", "past_sponsors",
+        "excluded_categories"]
 OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
         **{k: _NULLABLE_STRING for k in ["event_name", "event_type_quote", "event_date", "city",
-                                         "audience_size_quote", "audience", "host_name", "host_website"]},
+                                         "audience_size_quote", "audience", "host_name", "host_type_quote",
+                                         "host_website"]},
         "tiers": {
             "type": "array",
             "items": {
@@ -68,6 +70,7 @@ Copy text exactly as the host wrote it, character for character. Use null (or an
 - audience_size_quote: the words giving the expected attendance, e.g. "2,000 attendees" or "5k people".
 - audience: the host's words describing who attends.
 - host_name: the organization hosting the event.
+- host_type_quote: the words that say what kind of organization the host is (e.g. "university", "NGO", "student club", "Pvt Ltd"), often part of its name.
 - host_website: the host's website, as written.
 - tiers: sponsorship packages. name as written; price_quote is the price with its unit as written (e.g. "₹5 lakh"), or null; benefits are each benefit as written.
 - current_sponsors: companies already sponsoring this edition.
@@ -161,7 +164,8 @@ def parse_amount(quote: str) -> int | None:
 
 
 def decide_profile(quote: str | None, keywords: dict[str, list[str]]) -> str | None:
-    """The one profile whose keywords appear in the event-type words, or None if zero or both match."""
+    """The one kind whose keywords appear in the quoted words, or None if none or several match.
+    Used for the event profile and the host type."""
     if not quote:
         return None
     hits = {profile for profile, words in keywords.items()
@@ -199,6 +203,12 @@ def validate(raw: dict[str, Any], text: str, config: dict[str, Any]) -> tuple[di
     if type_quote and not profile:
         dropped.append({"field": "profile", "value": type_quote,
                         "reason": "event type matches neither profile, or both"})
+
+    host_quote = quoted("host_type_quote")
+    host_type = decide_profile(host_quote, config["host_type_keywords"])
+    if host_quote and not host_type:
+        dropped.append({"field": "host_type", "value": host_quote,
+                        "reason": "host type matches no known type, or more than one"})
 
     event_date = raw.get("event_date")
     if event_date is not None:
@@ -250,6 +260,7 @@ def validate(raw: dict[str, Any], text: str, config: dict[str, Any]) -> tuple[di
         "audience_size": audience_size,
         "audience": quoted("audience"),
         "host_name": quoted("host_name"),
+        "host_type": host_type,
         "host_website": website,
         "tiers": tiers,
         "current_sponsors": _names(raw["current_sponsors"], "current_sponsors", text, dropped),

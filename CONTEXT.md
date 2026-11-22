@@ -21,16 +21,22 @@ Read this before you code. It's written for teammates and for their coding agent
 6. **Outreach.** Host approves the campaign → agent sends → reads replies → answers questions from the brief only → books meetings → hands negotiation to the host.
 7. **Finished result:** meetings booked with sponsor decision-makers, plus a pipeline showing each company's state and why.
 
-**Two event profiles** (weights live in `config.yaml`, not code):
+**Weights by host type** (`config.yaml` → `scoring.weights`, not code). The event type (conference / concert) decides where to search; the host type decides the weights:
 
-| Signal | Conference / summit | Concert / festival |
-|---|---|---|
-| `past_sponsorships` of similar events | 0.30 | 0.30 |
-| `audience_fit` | 0.25 | 0.20 |
-| `active_hiring` (sponsorship / marketing roles, last 30 days) | 0.15 | 0.20 |
-| `budget` (funding, headcount, growth) | 0.15 | 0.15 |
-| `city_presence` | 0.10 | 0.10 |
-| `reachable_contact` | 0.05 | 0.05 |
+| Signal | university | NGO | company | community |
+|---|---|---|---|---|
+| `past_sponsorships` of similar events | **0.40** | **0.35** | **0.40** | **0.40** |
+| `alumni` (people from the host university working there) | 0.15 | – | – | – |
+| `csr` (a dated CSR page on the company's site) | 0.05 | 0.25 | – | – |
+| `company_size` (headcount) | 0.10 | 0.10 | 0.10 | 0.05 |
+| `funding` (last raise; secondary sales don't count) | 0.05 | – | 0.10 | 0.15 |
+| `listed` (stock symbol; known private = 0) | 0.05 | 0.10 | 0.05 | – |
+| `social_presence` (LinkedIn followers) | 0.05 | 0.05 | 0.10 | 0.15 |
+| `active_hiring` (sponsorship / brand roles, last 30 days) | 0.05 | 0.05 | 0.10 | 0.10 |
+| `growth` (12-month headcount change; layoffs lower it) | 0.05 | 0.05 | 0.05 | 0.05 |
+| `city_presence` | 0.05 | 0.05 | 0.10 | 0.10 |
+
+Ranking is by **evidence score** = score × confidence (the weighted sum of what is sourced), so an unknown signal earns nothing and a hiring-only company can't outrank a sourced past sponsor.
 
 ---
 
@@ -72,6 +78,7 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
 | `scripts/instagram_sponsor_summary.py` | Runs block 3b on every cached Instagram post and prints what resolved. |
 | `agent.py` | Block 8: the whole job, stage by stage (`run_step` each), replayable offline. Also the `outbox/` sender when Gmail isn't set up. |
+| `company_signals.py` | Company size, growth, funding, listing, followers, alumni and CSR signals, each from a sourced fact. |
 | `app.py`, `.streamlit/config.toml`, `demo/` | Block 8: the Streamlit screen (`streamlit run app.py`), its minimal theme, and the demo event descriptions. |
 | `backtest.py`, `scripts/backtest.py` | Block 5: do past events' real sponsors rank above non-sponsors, using only facts from before each event? |
 
@@ -169,9 +176,10 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | Host verification | Done, live (crash on a domain-less match fixed) | `host_check.py` |
 | 6 · Outreach and replies | Contacts live; approval fix; **email not run live: no Gmail env vars yet** | `outreach.py` |
 | 8 · End-to-end run and frontend | Done, live through sending (to `outbox/`); offline replay works | `agent.py`, `app.py` |
-| Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
+| Company signals, host-type weights, evidence-first ranking | Done, live on 3 demo events (company, university, NGO hosts) | `company_signals.py`, `scoring.py`, `brief.py` |
+| Signals `audience_fit`, `reachable_contact` | **Open** (removed from the weights until built) | — |
 | 5 · Back-test | Built; trial run (55 posts) = **cannot verify**: no repeat sponsors in the sample | `backtest.py`, `scripts/backtest.py` |
-| 7 · Hard cases + kill test | Partly: "contact who has left" now tested; layoffs needs `budget`; kill test needs the end-to-end run | — |
+| 7 · Hard cases + kill test | Partly: "contact who has left" and layoffs (`growth` → 0 at −20%) tested; kill test can now use `agent.py` | — |
 | README, diagram, business case, video | README and diagram written (gaps marked **[gap]**: agency fee, credit price, replies cost); video open | `README.md` |
 
 ### Block 3 · Candidate pools (done)
@@ -191,7 +199,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   - `lookalike`: companies in the same industries as those past sponsors.
   - `company_search`: companies in the profile's industries (`config.yaml`) with an office in the event city.
 - **Signals it fills:** `past_sponsorships`, `active_hiring`, `city_presence` (a job posting in the event city). Value = verified facts from distinct sources ÷ `signals_full_at` (max 1.0). No verified fact → no value (unknown, never 0).
-- **Not filled yet:** `budget`, `audience_fit`, `reachable_contact`. Scoring treats them as unknown, which lowers confidence but not the score.
+- The company signals (size, growth, funding, listed, followers, alumni, CSR) are added afterwards by `agent.add_company_signals`, see "Company signals" below.
 - **Live runs (22 Nov):**
   - Bengaluru fintech summit, all pools: 158 candidates. The first run of the post pools cost ~37 credits (LinkedIn posts 20, identify 7, company search 2, web search/fetch ~8) and ~$0.59 of model calls; reruns hit the caches.
   - Conference posts: 20 LinkedIn posts → 26 sponsor companies (Smart Meter Summit, ISODA United Summit, NABH, BMR...), 24 of them resolved by post tags. 4 Instagram posts → 1 (Hashout Technologies).
@@ -215,10 +223,26 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   - Extractions are cached per caption, so reruns cost no model calls.
   - Block 3 reuses `extract.extract`, `match.match_names` and `build_records` for LinkedIn posts too.
 
+### Company signals and host-type weights (done)
+- **Why:** in the first demo, companies that were only hiring topped the list above sourced past sponsors. Hiring weighed 0.15-0.20, and unknown signals were scaled away. Now past sponsorships weigh 0.35-0.40, hiring 0.05-0.10, and ranking is by evidence score (above).
+- **Host type:** `brief.py` copies the words describing the host (`host_type_quote`); code picks the type from `brief.host_type_keywords` (university, ngo, company, community). None or two matches → `BriefIncomplete(["host_type"])`. `Brief.host_type` is new (default `None` → `scoring.default_host_type`, e.g. the back-test). Prompt version v2.
+- **`company_signals.py`** (called by `agent.add_company_signals` inside the candidates stage):
+  - `company_facts`: one `/company/search` per 100 companies, ~0.6 credits per company. Record date = `metadata.updated_at`; for funding, the raise date.
+  - `alumni`: `/person/search` count of `education.schools.school (.) <host name>` AND current company, top `alumni_top` (40), ~0.23 each. Only when the host type weighs alumni. Dated the day we asked.
+  - `csr`: the company's own homepage → its CSR link → a passage that says CSR next to a financial year. Dated the **start** of that FY (1 April). No FY → `cannot_verify`. Top `csr_top` (15), ~2 credits each, only when weighted.
+    - Why not search: CSR search results are mostly Google redirect links or PDFs, and web fetch returns PDFs empty (checked live: Persistent's annual report PDF came back with 1 character).
+- **Live (22 Nov):**
+  - **Fintech summit (company host):** 90 candidates, 53.7 credits. Top: CtrlS Datacenters, Navi, Enerzolve, EY; sourced past sponsors now fill most of the top 12.
+  - **BITS Pilani conclave (university host):** 75 candidates, 72.8 credits, 4.5 min (the alumni counts wait on rate limits). EY and Persistent have 20+ BITS alumni each.
+  - **NGO education summit:** 89 candidates, 64.9 credits.
+  - **CSR yield is low:** most homepages have no CSR link. ITC Infotech was verified (FY 2024-25); CtrlS has a CSR page with no year (`cannot_verify`).
+- **Known limit:** `past_sponsorships` counts any similar-type event, so sponsors of a smart-meter summit rank for a fintech one. Fixing this needs `audience_fit` (still open).
+- **Not built (no data on our plan):** marketing methods. Userbase is approximated by LinkedIn followers (`social_presence`).
+
 ### Block 4 · Brief and scoring (done, 2 open issues)
 - **Live check (22 Nov):** two wordings of the same summit gave the same profile, city, date, size, tiers and sponsors, and the same ranking (excluded categories came back in a different order only).
 - **Open issue 1: excluded categories that aren't industries do nothing.** "competing payment companies" becomes the key "payment", but Crustdata industries say "Financial Services", so no payments company is excluded and nobody is told. Either flag unmatched categories for a person, or match them against something richer than industries.
-- **Open issue 2: ranking.** One strong known signal beats several medium ones (see block 3's notes).
+- ~~Open issue 2: ranking~~ fixed: ranked by evidence score with past sponsorships weighted most (see "Company signals").
 - **Files:** `brief.py`, `scoring.py`, `config.yaml` (profiles + weights section).
 - `brief.py`: host's free-text description → `Brief` (model extracts, code validates: profile must be `conference` or `concert`, dates ISO, missing fields `None`).
 - `scoring.py`: `score(candidate, brief, config) -> Candidate`.
@@ -275,8 +299,8 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - **Live run (22 Nov, `demo/fintech_summit.txt`):** 90 candidates, 2 contacts, 2 model-drafted pitches, 1 approved and written to the outbox. 6.81 credits and $0.03 for this run, because most searches were already cached from earlier runs.
 - **`records.py`** now has `brief_from_dict`, `candidate_from_dict`, `contact_from_dict` for records saved with `asdict`.
 
-### Open: the other three signals
-- `budget`: headcount, headcount growth and funding from `/company/search` (`headcount`, `funding` groups, +0.2 credits/result each). Negative growth (layoffs) should lower it (a hard case).
+### Open: the other two signals
+- (`budget` is done as `company_size`, `growth`, `funding`, `listed`.)
 - `audience_fit`: compare the brief's audience with who the company sells to. It must stay decided by code and sourced, or be left unknown.
 - `reachable_contact`: 1.0 when `outreach.find_contact` finds a sourced contact, unknown otherwise.
 

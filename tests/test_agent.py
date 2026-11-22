@@ -33,7 +33,8 @@ class NoCalls:
 
 
 def offline_agent(db):
-    config = {"scoring": {"profiles": {"conference": {"active_hiring": 1.0}}}, "outreach": {},
+    config = {"scoring": {"weights": {"company": {"active_hiring": 1.0}}, "default_host_type": "company"},
+              "outreach": {},
               "brief": {"profile_keywords": {"conference": ["summit"]}}}
     return agent.Agent("run-test", True, db, NoCalls(), config, email_ready=False)
 
@@ -84,6 +85,51 @@ class AgentTest(unittest.TestCase):
         ledger.record(self.db, "run-test", "crustdata", "/job/search", "ok", credits=3)
         ledger.record(self.db, "run-test", "anthropic", "messages", "ok", cost_usd=0.02)
         self.assertEqual(agent.cost(offline_agent(self.db)), {"credits": 3.0, "model_usd": 0.02})
+
+
+
+class Recorder:
+    """Answers company and alumni lookups from captured responses and records each path."""
+
+    def __init__(self):
+        self.paths = []
+
+    def call(self, path, body):
+        import json
+        from crustdata_client import ApiResponse
+
+        self.paths.append(path)
+        name = {"/company/search": "company_search_signals.json", "/person/search": "person_search_alumni.json"}[path]
+        data = json.loads((ROOT / "tests" / "fixtures" / name).read_text(encoding="utf-8"))
+        return ApiResponse(data, "2026-11-22T09:00:00+00:00", from_cache=False, credits=0)
+
+
+class CompanySignalsByHostTypeTest(unittest.TestCase):
+    def setUp(self):
+        import scoring
+
+        self.db = agent_db.connect(":memory:")
+        self.client = Recorder()
+        config = {"scoring": scoring.load_config(), "company_signals": agent._section("company_signals")}
+        self.job = agent.Agent("run-test", False, self.db, self.client, config, email_ready=False)
+        self.found = [Candidate(5708, "Navi", "navi.com"), Candidate(897127, "Razorpay", "razorpay.com")]
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_company_host_gets_company_data_but_no_alumni_or_csr(self):
+        failed = []
+        found = agent.add_company_signals(self.job, BRIEF, self.found, failed)   # BRIEF: no host type -> company
+        self.assertEqual(self.client.paths, ["/company/search"])
+        self.assertIn("company_size", {s.name for s in found[0].signals})
+        self.assertEqual(failed, [])
+
+    def test_university_host_also_counts_alumni(self):
+        university = Brief(**{**BRIEF.__dict__, "host_name": "BITS Pilani", "host_type": "university"})
+        with mock.patch.object(agent.company_signals, "csr", return_value={}):
+            found = agent.add_company_signals(self.job, university, self.found, [])
+        self.assertEqual(self.client.paths.count("/person/search"), 2)
+        self.assertIn("alumni", {s.name for s in found[0].signals})
 
 
 if __name__ == "__main__":

@@ -16,6 +16,9 @@ from tests.test_scoring import CONFIG as SCORING_CONFIG, candidate, signal  # no
 CONFIG = {"profile_keywords": {
     "conference": ["conference", "summit", "hackathon"],
     "concert": ["concert", "music festival", "live music"],
+}, "host_type_keywords": {
+    "university": ["university", "college"], "ngo": ["foundation", "ngo"],
+    "company": ["pvt", "ltd", "company"], "community": ["club", "community"],
 }}
 
 WORDING_A = """TechNova Summit 2027 is a two-day tech summit in Bengaluru starting 14 March 2027,
@@ -32,7 +35,7 @@ Current sponsor: Infosys Limited. Please avoid Alcohol."""
 def model_output(**overrides):
     out = {"event_name": "TechNova Summit 2027", "event_type_quote": None, "event_date": None,
            "city": None, "audience_size_quote": None, "audience": None, "host_name": "TechNova Foundation",
-           "host_website": None, "tiers": [], "current_sponsors": [], "past_sponsors": [],
+           "host_type_quote": "TechNova Foundation", "host_website": None, "tiers": [], "current_sponsors": [], "past_sponsors": [],
            "excluded_categories": []}
     out.update(overrides)
     return out
@@ -116,10 +119,23 @@ class BriefTest(unittest.TestCase):
         self.assertEqual(ctx.exception.missing, ["event_name", "profile", "audience", "host_name"])
 
     def test_concert_profile(self):
-        text = "Monsoon Beats 2027 is a music festival in Pune for college students, by Monsoon Events."
+        text = "Monsoon Beats 2027 is a music festival in Pune for college students, by the Monsoon music club."
         b, _ = self.make(text, model_output(event_name="Monsoon Beats 2027", event_type_quote="music festival",
-                                            audience="college students", host_name="Monsoon Events"))
-        self.assertEqual(b.profile, "concert")
+                                            audience="college students", host_name="Monsoon music club",
+                                            host_type_quote="music club"))
+        self.assertEqual((b.profile, b.host_type), ("concert", "community"))
+
+    def test_two_wordings_give_the_same_host_type(self):
+        a, _ = self.make(WORDING_A, model_output(event_type_quote="tech summit", audience="startup founders"))
+        b, _ = self.make(WORDING_B, model_output(event_type_quote="a tech conference", audience="startup founders"))
+        self.assertEqual((a.host_type, b.host_type), ("ngo", "ngo"))
+
+    def test_host_type_matching_two_kinds_is_asked(self):
+        text = "TechNova Summit 2027, a tech summit for students, by TechNova Foundation, a student club."
+        with self.assertRaises(brief.BriefIncomplete) as ctx:
+            self.make(text, model_output(event_type_quote="tech summit", audience="students",
+                                         host_type_quote="TechNova Foundation, a student club"))
+        self.assertEqual(ctx.exception.missing, ["host_type"])
 
     def test_second_run_reads_the_cache_and_both_go_in_the_ledger(self):
         out = model_output(event_type_quote="tech summit", audience="startup founders and engineers")
@@ -155,6 +171,12 @@ class RealConfigTest(unittest.TestCase):
         keywords = brief.load_config()["profile_keywords"]
         self.assertEqual(set(keywords), {"conference", "concert"})
         self.assertFalse(set(keywords["conference"]) & set(keywords["concert"]))
+
+    def test_host_type_keywords_match_the_weight_tables_without_overlap(self):
+        keywords = brief.load_config()["host_type_keywords"]
+        self.assertEqual(set(keywords), set(scoring.load_config()["weights"]))
+        words = [w for kind in keywords.values() for w in kind]
+        self.assertEqual(len(words), len(set(words)))
 
 
 if __name__ == "__main__":

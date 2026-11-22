@@ -70,11 +70,33 @@ companies that sponsored other events, using only facts dated before the event?
 |---|---|---|
 | Crustdata job search | Companies hiring sponsorship, brand and event-marketing roles in the last 30 days; their city | Fresh (postings from the last day) |
 | Crustdata LinkedIn post search | Past sponsorships: posts naming a company as a sponsor of a similar event | About 2 months behind |
-| Crustdata web search + page fetch | Instagram sponsor posts (search results are leads; the fetched post is the fact), the host's website | Live |
-| Crustdata company identify / search | Company IDs (the one key for a company), names, domains, industries, look-alikes | Indexed |
-| Crustdata person search | The decision-maker at a picked company: current title, start date | Indexed |
+| Crustdata web search + page fetch | Instagram sponsor posts (search results are leads; the fetched post is the fact), the host's website, companies' own CSR pages | Live |
+| Crustdata company identify / search | Company IDs (the one key for a company), names, domains, industries, look-alikes; headcount and its 12-month change, last funding round, stock listing, LinkedIn followers | Indexed |
+| Crustdata person search | The decision-maker at a picked company; for university hosts, how many alumni work at each company | Indexed |
 | Anthropic Claude | Extract the brief and sponsor names, draft pitches, classify replies. Never scores or decides | — |
 | Team Gmail (SMTP/IMAP) | Send approved emails to our own team inbox; read replies | Live |
+
+### How sponsors are scored
+
+Plain code, weights in `config.yaml`, different for each kind of host:
+
+| Signal | University | NGO | Company | Community |
+|---|---|---|---|---|
+| Past sponsorships of similar events | **0.40** | **0.35** | **0.40** | **0.40** |
+| Alumni of the host working there | 0.15 | – | – | – |
+| CSR page with a dated financial year | 0.05 | 0.25 | – | – |
+| Company size (headcount) | 0.10 | 0.10 | 0.10 | 0.05 |
+| Recent funding (secondary sales excluded) | 0.05 | – | 0.10 | 0.15 |
+| Listed on a stock exchange | 0.05 | 0.10 | 0.05 | – |
+| LinkedIn followers | 0.05 | 0.05 | 0.10 | 0.15 |
+| Hiring sponsorship / brand roles now | 0.05 | 0.05 | 0.10 | 0.10 |
+| 12-month headcount growth (layoffs lower it) | 0.05 | 0.05 | 0.05 | 0.05 |
+| Office or job postings in the event city | 0.05 | 0.05 | 0.10 | 0.10 |
+
+Companies are ranked by the weighted sum of what is **sourced**: an unknown signal earns
+nothing, and the screen shows how much of the weight was known ("Evidence"). Two parameters
+we considered aren't scored: **marketing methods** (no data source on our plan) and
+**userbase** (LinkedIn followers stand in for reach).
 
 Every fact is an `Evidence` record: source URL or API field, the exact quote, the record's date
 and when we fetched it. No date, or the quote isn't on the page: **cannot verify**, with what is

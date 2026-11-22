@@ -15,12 +15,15 @@ import streamlit as st
 
 import agent
 import outreach
+import scoring
 from brief import BriefIncomplete, ExtractionFailed
 from crustdata_client import BudgetExceeded, NotInCache
 
 EXAMPLES = Path(__file__).resolve().parent / "demo"
-SIGNAL_LABELS = {"past_sponsorships": "past sponsor", "active_hiring": "hiring", "city_presence": "in city",
-                 "budget": "budget", "audience_fit": "audience", "reachable_contact": "contact"}
+SIGNAL_LABELS = {"past_sponsorships": "past sponsor", "alumni": "alumni", "csr": "CSR",
+                 "company_size": "size", "funding": "funding", "listed": "listed",
+                 "social_presence": "followers", "active_hiring": "hiring", "growth": "growth",
+                 "city_presence": "in city"}
 SHOWN = 30  # candidates in the table
 
 st.set_page_config(page_title="Sponsor agent", layout="centered")
@@ -85,7 +88,8 @@ except BudgetExceeded as e:
 
 st.subheader("Brief")
 rows = {
-    "Event": brief.event_name, "Type": brief.profile, "Date": brief.event_date, "City": brief.city,
+    "Event": brief.event_name, "Type": brief.profile, "Host type": brief.host_type,
+    "Date": brief.event_date, "City": brief.city,
     "Audience": f"{brief.audience_size:,} · {brief.audience}" if brief.audience_size else brief.audience,
     "Host": f"{brief.host_name} ({brief.host_website})" if brief.host_website else brief.host_name,
     "Tiers": ", ".join(f"{t.name} {rupees(t.price_inr)}" if t.price_inr else t.name for t in brief.tiers),
@@ -119,15 +123,16 @@ def signals_text(candidate) -> str:
 
 scored = [c for c in ranked if c.excluded_reason is None][:SHOWN]
 excluded = [c for c in ranked if c.excluded_reason]
-st.caption(f"{len(ranked)} companies found. Top {len(scored)} shown. Score uses only sourced facts; "
-           "confidence is the share of the score's inputs that were known.")
+host_label = {"ngo": "NGO"}.get(brief.host_type, brief.host_type)
+st.caption(f"{len(ranked)} companies found. Top {len(scored)} shown, with the weights for host type: {host_label}. "
+           "Score counts only sourced facts; Evidence is the share of the weights we could source.")
 table = st.data_editor(
-    [{"Pitch": False, "Company": c.name, "Score": c.score, "Confidence": c.confidence,
+    [{"Pitch": False, "Company": c.name, "Score": scoring.evidence_score(c), "Evidence": c.confidence,
       "Why": signals_text(c), "Found by": ", ".join(c.found_by).replace("_", " ")} for c in scored],
     column_config={"Pitch": st.column_config.CheckboxColumn(width="small"),
                    "Score": st.column_config.NumberColumn(format="%.2f"),
-                   "Confidence": st.column_config.NumberColumn(format="%.2f")},
-    disabled=["Company", "Score", "Confidence", "Why", "Found by"], hide_index=True, width="stretch")
+                   "Evidence": st.column_config.NumberColumn(format="%.2f")},
+    disabled=["Company", "Score", "Evidence", "Why", "Found by"], hide_index=True, width="stretch")
 picked = [c for c, row in zip(scored, table) if row["Pitch"]]
 
 with st.expander("Evidence for a company"):

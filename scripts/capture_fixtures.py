@@ -81,6 +81,32 @@ CALLS = [
         },
     ),
     (
+        # company_signals.company_facts: ITC (listed), Navi and Razorpay (private).
+        "company_search_signals",
+        "company_search",
+        {
+            "filters": {"field": "crustdata_company_id", "type": "in", "value": [2289, 5708, 897127]},
+            "fields": ["crustdata_company_id", "metadata.updated_at", "basic_info.name",
+                       "basic_info.professional_network_url", "basic_info.markets", "headcount.total",
+                       "headcount.growth_percent", "funding.last_fundraise_date", "funding.last_round_type",
+                       "followers.count", "revenue.public_markets"],
+            "limit": 3,
+        },
+    ),
+    (
+        # company_signals.alumni: a count, nobody's profile is kept (the one row is dropped below).
+        "person_search_alumni",
+        "person_search",
+        {
+            "filters": {"op": "and", "conditions": [
+                {"field": "education.schools.school", "type": "(.)", "value": "BITS Pilani"},
+                {"field": "experience.employment_details.current.company_id", "type": "=", "value": 897127},
+            ]},
+            "fields": ["crustdata_person_id"],
+            "limit": 1,
+        },
+    ),
+    (
         "web_search",
         "web_search",
         {"query": "hackathon sponsors announced India", "site": "instagram.com"},

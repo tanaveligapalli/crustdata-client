@@ -50,7 +50,9 @@ def export(out: Path = OUT, db_path: Path = agent_db.DEFAULT_PATH) -> list[str]:
             print(f"skipped {example['name']}: never ran on this machine (run it once on the live server)")
             continue
         view = server.run_view(db, run_id, scoring_cfg, debug=False)
-        view["pitches"], view["pipeline"] = [], []      # they name the contacts: not for a public page
+        # They name real people (contacts, sponsors' replies and their addresses): not for a public page.
+        for key in ("pitches", "pipeline", "people", "held_replies", "replies"):
+            view[key] = []
         write(out / "api" / "runs" / f"{run_id}.json", view)
         examples.append({**example, "run_id": run_id})
         runs.append({"run_id": run_id, "created_at": None, "event_name": view["brief"]["event_name"]})

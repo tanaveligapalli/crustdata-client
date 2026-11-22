@@ -41,6 +41,7 @@ class ExportSiteTest(unittest.TestCase):
             self.assertEqual(config["examples"][0]["run_id"], run_id)
             view = json.loads((site / "api" / "runs" / f"{run_id}.json").read_text(encoding="utf-8"))
             self.assertEqual((view["pitches"], view["pipeline"]), ([], []))
+            self.assertEqual((view["people"], view["held_replies"], view["replies"]), ([], [], []))
             self.assertIn("/api/runs/*", (site / "_redirects").read_text(encoding="utf-8"))
             self.assertTrue((site / "index.html").is_file())
 

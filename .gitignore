@@ -1,6 +1,7 @@
 .crustdata_cache.sqlite3
 __pycache__/
 .env
+*.env
 agent.sqlite3
 .venv/
 .pytest_cache/

@@ -31,23 +31,51 @@ from instagram_parser import parse_post, parse_url  # noqa: E402
 TARGET = 15
 REPORTS = ROOT / "reports"
 
-# Each search is sent with the site: operator in the query text, since the
-# `site` body parameter did not keep results to instagram.com.
+# Each query is sent with the `site` body parameter set to a post path and
+# then a reel path. A bare "instagram.com" site (or a site: operator in the
+# query) mostly returned non-Instagram results; the path-level site value
+# returned Instagram post URLs.
+SITES = ["instagram.com/p", "instagram.com/reel"]
 QUERIES = [
     "hackathon sponsors announced India",
     "hackathon India title sponsor announcement",
-    "hackathon 2026 India sponsors reel",
+    "hackathon 2026 India sponsors",
     "national hackathon India registrations open",
-    "hackathon powered by sponsor India",
     "hackathon winners announced India",
+    "hackathon India powered by",
+    "college hackathon India sponsors",
+    "AI hackathon India partners",
+    "hackathon India sponsor reveal",
+    "hackathon Bengaluru sponsors",
+    "hackathon Mumbai sponsors",
+    "hackathon Delhi sponsors",
+    "hackathon Hyderabad sponsors",
+    "hackathon Pune sponsors",
+    "hackathon Chennai sponsors",
+    "IIT hackathon sponsors",
+    "hackathon India prize pool sponsors",
+    "hackathon India gold sponsor",
 ]
 IG_POST = re.compile(r"^https?://(www\.)?instagram\.com/(?:[^/]+/)?(p|reel|reels|tv)/[^/?#]+")
 
 COLUMNS = [
     "url", "kind", "parse_status", "handle", "posted_at", "caption_length",
-    "comment_count", "time_tag", "time_delta_seconds", "time_disagrees",
+    "comment_count", "caption_is_edited", "time_tag", "time_delta_seconds", "time_disagrees",
     "datePublished", "uploadDate", "fetch_success", "http_status", "page_title",
     "content_chars",
+]
+
+
+GOOGLE_GOTO = re.compile(r"^https://www\.google\.com/goto\?")
+
+# Found in an earlier run of this survey: the first via a query with the
+# site: operator, the other two by reading the 302 Location of Google goto
+# redirect links in web search results. That redirect lookup was dropped
+# after Google began answering with an interstitial page instead of a 302.
+EARLIER_RUN_URLS = [
+    "https://www.instagram.com/p/DYML2nsCWlM/",
+    "https://www.instagram.com/p/DbQiJYoMPmM/",
+    "https://www.instagram.com/p/DV7qk8GkVNu/",
 ]
 
 
@@ -57,22 +85,26 @@ def canonical(url: str) -> str:
 
 
 def collect_urls(client: CrustdataClient) -> tuple[list[str], list[dict]]:
-    urls: list[str] = []
-    log = []
-    for q in QUERIES:
+    urls: list[str] = list(EARLIER_RUN_URLS)
+    log = [{"query": "(earlier run, see EARLIER_RUN_URLS)", "results": None,
+            "instagram_post_urls": len(EARLIER_RUN_URLS), "new": len(EARLIER_RUN_URLS)}]
+    for q, site in ((q, site) for q in QUERIES for site in SITES):
         if len(urls) >= TARGET:
             break
-        query = f"{q} site:instagram.com"
+        query = f"{q} [site={site}]"
         try:
-            resp = client.web_search({"query": query})
+            resp = client.web_search({"query": q, "sources": ["web"], "site": site})
         except CrustdataError as err:
             log.append({"query": query, "error": f"HTTP {err.status}"})
             continue
         results = resp.get("results") or []
-        found = [canonical(r["url"]) for r in results if IG_POST.match(r.get("url") or "")]
+        raw_urls = [r.get("url") or "" for r in results]
+        gotos = [u for u in raw_urls if GOOGLE_GOTO.match(u)]
+        found = [canonical(u) for u in raw_urls if IG_POST.match(u)]
         new = [u for u in dict.fromkeys(found) if u not in urls]
         urls.extend(new)
-        log.append({"query": query, "results": len(results), "instagram_post_urls": len(found), "new": len(new)})
+        log.append({"query": query, "results": len(results), "google_redirects_skipped": len(gotos),
+                    "instagram_post_urls": len(found), "new": len(new)})
     return urls[:TARGET], log
 
 
@@ -101,6 +133,7 @@ def survey_row(client: CrustdataClient, url: str) -> dict:
         "posted_at": datetime.fromtimestamp(taken_at, UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if isinstance(taken_at, int) else None,
         "caption_length": len(p["caption"]) if p["caption"] is not None else None,
         "comment_count": p["comment_count"],
+        "caption_is_edited": p["caption_is_edited"],
         "time_tag": p["time_tag"],
         "time_delta_seconds": p["time_delta_seconds"],
         "time_disagrees": p["time_disagrees"],
@@ -135,18 +168,23 @@ def write_reports(rows: list[dict], search_log: list[dict]) -> str:
         f"- Success rate (parse_status ok): {pct('ok')}",
         f"- Gated rate: {pct('gated')}",
         f"- shortcode_mismatch: {pct('shortcode_mismatch')}; no_post_object: {pct('no_post_object')}",
-        f"- taken_at vs <time> over 60 s apart: {disagree} of {checked} checked",
+        f"- taken_at vs <time> over 60 s apart: {disagree} of {checked} checked"
+        + (f" (caption edited on {sum(bool(r['time_disagrees']) and r['caption_is_edited'] is True for r in rows)} of them;"
+           " on edited posts the caption's <time> tag shows caption.created_at)" if disagree else ""),
         "",
-        "| URL | kind | parse_status | handle | posted_at | caption length | comments | time Δ s |",
-        "|---|---|---|---|---|---|---|---|",
+        "| URL | kind | parse_status | handle | posted_at | caption length | comments | time Δ s | caption edited |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         lines.append("| " + " | ".join(_cell(r[c]) for c in (
             "url", "kind", "parse_status", "handle", "posted_at", "caption_length",
-            "comment_count", "time_delta_seconds")) + " |")
-    lines += ["", "## Searches", "", "| query | results | instagram post URLs | new |", "|---|---|---|---|"]
+            "comment_count", "time_delta_seconds", "caption_is_edited")) + " |")
+    lines += ["", "## Searches", "",
+              "| query | results | Google redirects (skipped) | instagram post URLs | new |",
+              "|---|---|---|---|---|"]
     for s in search_log:
         lines.append(f"| {_cell(s['query'])} | {_cell(s.get('results', s.get('error')))} | "
+                     f"{_cell(s.get('google_redirects_skipped'))} | "
                      f"{_cell(s.get('instagram_post_urls'))} | {_cell(s.get('new'))} |")
     md = "\n".join(lines) + "\n"
     (REPORTS / "instagram_survey.md").write_text(md, encoding="utf-8")

@@ -22,7 +22,9 @@ Date cross-check: the post's <time datetime="..."> is taken to be the last
 <time> tag before the caption text in the rendered HTML. The other <time>
 tags on the page belong to comments. If the caption text is not in the
 HTML, no tag is chosen. A disagreement with taken_at of more than
-TIME_TOLERANCE_SECONDS sets time_disagrees to True.
+TIME_TOLERANCE_SECONDS sets time_disagrees to True. In the pages surveyed,
+every disagreement was on a post with caption_is_edited true, where the
+caption's <time> tag equalled caption.created_at (the edit time).
 
 The fixture has no ``datePublished`` or ``uploadDate`` key. The parser still
 looks for them anywhere in the page's JSON and returns None if absent.
@@ -159,6 +161,7 @@ def parse_post(html: str, url: str | None = None) -> dict[str, Any]:
         "taken_at": taken_at,
         "caption_created_at": caption.get("created_at"),
         "comment_count": media.get("comment_count"),
+        "caption_is_edited": media.get("caption_is_edited"),
         "time_tag": time_tag,
         "time_delta_seconds": delta,
         "time_disagrees": None if delta is None else delta > TIME_TOLERANCE_SECONDS,

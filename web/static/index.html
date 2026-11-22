@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sponsor Agent</title>
+  <meta name="description" content="Describe your event. Sponsor Agent finds companies with a sourced reason to sponsor it, checks every fact, and drafts pitches you approve.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111'/%3E%3Cpath d='M9 21c3 2 11 2 13-2s-11-4-9-8 9-3 11-1' stroke='%23fecc4c' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400&display=swap">
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=sentient@400,500,700,400i,500i&display=swap">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <a class="skip" href="#plan">Skip to the planner</a>
+
+  <nav class="nav" aria-label="Main">
+    <a class="brand" href="#top" aria-label="Sponsor Agent, home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 21c3 2 11 2 13-2s-11-4-9-8 9-3 11-1"/></svg>
+      </span>
+      <span class="brand-name">Sponsor<em>Agent</em></span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#plan">Plan</a>
+      <a href="#pipeline" data-needs-run hidden>Pipeline</a>
+    </div>
+    <div class="nav-right">
+      <span class="pill pill-replay" id="replay-pill" hidden>Replay mode</span>
+      <label class="switch" id="debug-switch" hidden title="Operator view: weights, scores and costs">
+        <input type="checkbox" id="debug-toggle">
+        <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+        <span class="switch-label">Debug</span>
+      </label>
+      <a class="btn btn-sm btn-black" href="#plan"><span class="btn-text">Start</span></a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-shapes" aria-hidden="true">
+      <span class="shape shape-sun"></span>
+      <span class="shape shape-star"></span>
+      <span class="shape shape-pill"></span>
+      <span class="shape shape-ring"></span>
+    </div>
+    <div class="container hero-inner">
+      <p class="eyebrow"><span class="dot"></span> For conferences, summits, concerts and festivals in India</p>
+      <h1 class="display">
+        Sponsors for your event,
+        <span class="grad">found, checked and booked.</span>
+      </h1>
+      <p class="lead">Describe your event in plain words. We find companies with a sourced reason to sponsor it,
+        check every fact, and draft pitches that go out only when you say yes.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-peach" href="#plan">
+          <span class="btn-text">Plan your sponsorship</span>
+          <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </a>
+        <a class="link-arrow" href="#how">See how it works</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="strip" aria-label="Where we look">
+    <div class="container">
+      <p class="strip-title" id="strip-title">Where we look for sponsors</p>
+    </div>
+    <div class="marquee" id="marquee">
+      <div class="marquee-track" id="marquee-track"></div>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="container">
+      <h2 class="title">From one paragraph <span class="title-accent">to booked meetings</span></h2>
+      <div class="steps">
+        <article class="step step-yellow">
+          <span class="step-no">01</span>
+          <h3>Tell us about the event</h3>
+          <p>Name, date, city, audience, tiers, past sponsors, and the brands you won't take. We keep only what you actually wrote.</p>
+        </article>
+        <article class="step step-blue">
+          <span class="step-no">02</span>
+          <h3>We check the host</h3>
+          <p>Your own website has to name you before anything goes out. No one can use this to pose as someone else.</p>
+        </article>
+        <article class="step step-pink">
+          <span class="step-no">03</span>
+          <h3>We find the right companies</h3>
+          <p>Past sponsorships of similar events, companies hiring brand and sponsorship roles, and company data. Every reason has a source and a date.</p>
+        </article>
+        <article class="step step-peach">
+          <span class="step-no">04</span>
+          <h3>You approve every pitch</h3>
+          <p>We find the decision-maker and draft the email from your brief. Nothing is sent until you tick it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-plan" id="plan">
+    <div class="container">
+      <div class="plan-head">
+        <h2 class="title">Tell us about <span class="title-accent">your event</span></h2>
+        <div class="recent" id="recent" hidden>
+          <span class="recent-label">Recent</span>
+          <div class="recent-list" id="recent-list"></div>
+        </div>
+      </div>
+
+      <div class="composer card">
+        <div class="examples" id="examples" aria-label="Examples"></div>
+        <label class="sr-only" for="description">Describe your event</label>
+        <textarea id="description" rows="7" placeholder="Name, type, date, city, audience and its size, the host organization and its website, sponsorship tiers with prices, past sponsors, kinds of company to avoid."></textarea>
+        <div class="composer-foot">
+          <p class="hint" id="run-hint">The first search takes a few minutes. Searching again with the same words costs nothing.</p>
+          <button class="btn btn-yellow" id="run-btn" type="button">
+            <span class="btn-text">Find sponsors</span>
+            <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </button>
+        </div>
+      </div>
+
+      <ol class="progress" id="progress" hidden aria-label="Progress">
+        <li data-stage="brief">Brief</li>
+        <li data-stage="host">Host check</li>
+        <li data-stage="sponsors">Sponsors</li>
+        <li data-stage="pitches">Pitches</li>
+        <li data-stage="pipeline">Pipeline</li>
+      </ol>
+      <p class="status" id="status" role="status" aria-live="polite" hidden></p>
+      <div class="alert" id="alert" role="alert" hidden></div>
+
+      <div id="results" hidden>
+        <div class="grid-2">
+          <section class="card brief" id="brief-card" aria-labelledby="brief-h">
+            <h3 class="card-title" id="brief-h">Your brief</h3>
+            <dl class="facts" id="brief-facts"></dl>
+            <details class="quiet" id="dropped" hidden>
+              <summary></summary>
+              <ul id="dropped-list"></ul>
+            </details>
+          </section>
+          <section class="card host" id="host-card" aria-labelledby="host-h">
+            <h3 class="card-title" id="host-h">Host check</h3>
+            <div id="host-body"></div>
+          </section>
+        </div>
+
+        <section class="card debug-panel" id="debug-panel" hidden aria-label="Debug">
+          <div class="debug-head">
+            <h3 class="card-title">Operator view</h3>
+            <span class="pill pill-dark">only on a --debug server</span>
+          </div>
+          <div class="debug-grid">
+            <div>
+              <p class="debug-label">Weights for host type <strong id="debug-host-type"></strong></p>
+              <div class="weights" id="debug-weights"></div>
+            </div>
+            <div>
+              <p class="debug-label">Cost of this job so far</p>
+              <p class="cost" id="debug-cost"></p>
+              <p class="debug-label">Ranking</p>
+              <p class="small">Order = score × confidence: the weighted sum of what's sourced. An unknown signal earns nothing and is never stored as zero.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="sponsors" id="sponsors" aria-labelledby="sponsors-h">
+          <div class="section-bar">
+            <h3 class="h3" id="sponsors-h">Companies to pitch</h3>
+            <p class="small" id="sponsors-sub"></p>
+          </div>
+          <div class="alert alert-warn" id="failed" hidden></div>
+          <ol class="sponsor-list" id="sponsor-list"></ol>
+          <details class="quiet" id="excluded" hidden>
+            <summary></summary>
+            <ul id="excluded-list"></ul>
+          </details>
+          <div class="action-bar" id="pick-bar" hidden>
+            <p><strong id="pick-count">0</strong> picked. We'll find the decision-maker at each and draft a pitch.</p>
+            <button class="btn btn-blue" id="draft-btn" type="button">
+              <span class="btn-text">Draft pitches</span>
+              <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="pitches" id="pitches" hidden aria-labelledby="pitches-h">
+          <div class="section-bar">
+            <h3 class="h3" id="pitches-h">Pitches to approve</h3>
+            <p class="small" id="mail-dest"></p>
+          </div>
+          <div class="pitch-list" id="pitch-list"></div>
+          <div class="action-bar">
+            <p><strong id="approve-count">0</strong> approved. Each is sent once, exactly as shown.</p>
+            <button class="btn btn-pink" id="send-btn" type="button" disabled>
+              <span class="btn-text">Send approved</span>
+              <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7-8-1z"/></svg></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="pipeline" id="pipeline" hidden aria-labelledby="pipeline-h">
+          <div class="section-bar">
+            <h3 class="h3" id="pipeline-h">Pipeline</h3>
+            <p class="small">Replies are read in the terminal: <code id="reply-cmd"></code></p>
+          </div>
+          <div class="board" id="board"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container principles">
+      <figure class="quote quote-maroon">
+        <blockquote>A wrong fact costs more than “cannot verify”. So every reason we give has a source, a quote and a date, and anything we can't settle says so.</blockquote>
+        <figcaption>How we treat facts</figcaption>
+      </figure>
+      <figure class="quote quote-blue">
+        <blockquote>Nothing that can't be undone happens without you. You read every pitch before it goes, and each one is sent at most once.</blockquote>
+        <figcaption>How we treat your name</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>
+        <p class="footer-brand">Sponsor<em>Agent</em></p>
+        <p class="small">Built for ContextCon 05 · BITS Pilani · data from Crustdata</p>
+      </div>
+      <p class="small" id="footer-run"></p>
+    </div>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

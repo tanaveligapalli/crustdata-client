@@ -231,34 +231,54 @@ From the cost ledger, 22 Nov 2026 runs:
 
 ---
 
-## Diagram
+## Workflows
 
-```mermaid
-flowchart TD
-    D[Host's description] --> B[Brief<br/>model extracts, code checks]
-    B --> H{Host check<br/>site names the host?}
-    B --> P[Candidate pools]
-    P --> J[Job search: hiring now]
-    P --> L[LinkedIn posts: past sponsors]
-    P --> I[Web search + fetch: Instagram posts]
-    P --> C[Company identify / search: host's sponsors, look-alikes]
-    L & I --> X[Model reads sponsor names<br/>code checks each is in the text]
-    J & X & C --> E[(Evidence ledger<br/>source, quote, date)]
-    E --> S[Scoring: plain code<br/>hard filters, weights from config.yaml]
-    S --> UI[Screen: ranked sponsors + evidence]
-    UI -->|host picks| K[Person search: contact]
-    K --> W[Pitch drafted<br/>numbers checked against brief]
-    H -->|not verified| BLOCK[Outreach blocked]
-    W -->|host approves each| M[Send once to team inbox]
-    M --> R[Replies: classify<br/>answer from brief / book meeting / hand to host]
-    R -->|person approves| M
+All diagrams as one PDF: [`docs/workflow/sponsorship-agent-workflows.pdf`](docs/workflow/sponsorship-agent-workflows.pdf). Sources and judge Q&A: [`WORKFLOW.md`](WORKFLOW.md).
 
-    subgraph infra [Every call]
-        LED[(Cost ledger)]
-        CACHE[(Response cache)]
-        STEP[(Steps: restart-safe)]
-    end
-```
+### Technical workflow
+
+**End-to-end pipeline**
+
+![End-to-end pipeline](docs/workflow/01-1-1-end-to-end-pipeline.png)
+
+**Architecture**
+
+![Architecture](docs/workflow/02-1-2-architecture.png)
+
+**Finding candidates (Crustdata)**
+
+![Finding candidates (Crustdata)](docs/workflow/03-1-3-finding-candidates-crustdata.png)
+
+**Every fact becomes Evidence**
+
+![Every fact becomes Evidence](docs/workflow/04-1-4-every-fact-evidence.png)
+
+**Scoring**
+
+![Scoring](docs/workflow/05-1-5-scoring.png)
+
+**Outreach guard rails**
+
+![Outreach guard rails](docs/workflow/06-1-6-outreach-guard-rails.png)
+
+**Kill-on-stage recovery**
+
+![Kill-on-stage recovery](docs/workflow/07-1-7-kill-on-stage-recovery.png)
+
+**Reply handling**
+
+![Reply handling](docs/workflow/08-1-8-reply-handling.png)
+
+### Business workflow
+
+**The job in one picture**
+
+![The job in one picture](docs/workflow/09-2-1-the-job-in-one-picture.png)
+
+**Who does what**
+
+![Who does what](docs/workflow/10-2-3-who-does-what.png)
+
 
 - **Crustdata calls** (job, post, company, person search, web search and fetch) go through one
   client: response cache, per-endpoint rate limits, retries with backoff on 429/5xx, a credit

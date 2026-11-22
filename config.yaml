@@ -10,3 +10,39 @@ instagram_sponsors:          # block 3b
     min_confidence: 0.8      # take a company only at or above this confidence_score
     ambiguity_margin: 0.05   # another company within this of the top score = ambiguous
     identify_batch_size: 25  # names per /company/identify call (API max 25)
+
+brief:                       # block 4: host's description -> Brief
+  model: claude-opus-5-5
+  effort: low                # extraction only; code checks every value against the text
+  max_tokens: 4096
+  price_usd_per_mtok:
+    claude-opus-5-5: {input: 4.00, output: 20.00}
+  # The profile is decided by code from the words the host used for the event type,
+  # so two wordings of the same event get the same profile. Whole words; plurals match.
+  profile_keywords:
+    conference: [conference, summit, conclave, symposium, expo, forum, convention, hackathon, meetup, tech fest]
+    concert: [concert, music festival, music fest, gig, live music, dj night, edm]
+
+scoring:                     # block 4: weights per profile; each profile sums to 1
+  profiles:
+    conference:
+      past_sponsorships: 0.30
+      audience_fit: 0.25
+      active_hiring: 0.15
+      budget: 0.15
+      city_presence: 0.10
+      reachable_contact: 0.05
+    concert:
+      past_sponsorships: 0.30
+      audience_fit: 0.20
+      active_hiring: 0.20
+      budget: 0.15
+      city_presence: 0.10
+      reachable_contact: 0.05
+  restricted_categories: []  # excluded for every event; hosts add their own in the brief
+  # Words to look for in a candidate's Crustdata industries, per category name.
+  # A category not listed here is matched by its own name.
+  category_keywords:
+    alcohol: [alcohol, wine, spirit, beer, brew, distill, liquor]
+    tobacco: [tobacco, cigarette]
+    gambling: [gambling, casino, betting]

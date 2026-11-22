@@ -89,6 +89,7 @@ class Candidate:
     name: str
     domain: str | None
     found_by: list[str] = field(default_factory=list)   # pools: "past_sponsor", "hiring", "company_search"
+    industries: list[str] = field(default_factory=list) # Crustdata basic_info.industries; scoring's category filters read it
     signals: list[Signal] = field(default_factory=list)
     score: float | None = None
     confidence: float | None = None                     # share of the weight that had known values

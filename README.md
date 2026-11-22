@@ -40,6 +40,22 @@ browser by a `--debug` server, so start it without `--debug` for anyone who isn'
 It listens on this machine only; each new search is capped at 150 credits (`--credit-limit` changes it). Logos cost 0.03
 credits per company shown (once; they're cached).
 
+### Public demo on Netlify (read-only)
+
+Netlify serves files; it can't run the agent (a search is minutes of Python with a SQLite
+database). So we publish a read-only copy of the screen with the demo events that already ran:
+
+```
+python scripts/export_site.py              # writes site/ from this machine's agent.sqlite3
+npx netlify-cli deploy --dir site --prod   # or drag site/ onto https://app.netlify.com/drop
+```
+
+Visitors pick an example and see the brief, host check and ranked sponsors with every sourced
+fact. Nothing on it can spend credits or send email, and pitches and the pipeline are left out
+because they name real contacts. To add an event, run it once on the live server, then export
+again. `netlify.toml` points Netlify at `site/`; `site/` itself isn't in git (it's built from the
+local database), so deploy it from this machine.
+
 ## The job and who pays for it today
 
 An event host needs sponsors. Someone has to find companies likely to sponsor this kind of

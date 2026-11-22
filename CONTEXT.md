@@ -80,6 +80,7 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `agent.py` | Block 8: the whole job, stage by stage (`run_step` each), replayable offline. Also the `outbox/` sender when Gmail isn't set up. |
 | `company_signals.py` | Company size, growth, funding, listing, followers, alumni and CSR signals, each from a sourced fact. |
 | `web/server.py`, `web/static/` | Block 8: the designed web screen over `agent.py` (`python web/server.py [--debug] [--offline]`). Debug weights only reach the browser from a `--debug` server. |
+| `scripts/export_site.py`, `netlify.toml` | Read-only copy of the web screen for Netlify: the demo events that ran here, as JSON beside the page (no pitches or contacts). |
 | `app.py`, `.streamlit/config.toml`, `demo/` | Block 8: the Streamlit screen (`streamlit run app.py`), its minimal theme, and the demo event descriptions. |
 | `backtest.py`, `scripts/backtest.py` | Block 5: do past events' real sponsors rank above non-sponsors, using only facts from before each event? |
 

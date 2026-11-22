@@ -7,3 +7,4 @@ agent.sqlite3
 .pytest_cache/
 outbox/
 .preview/
+site/

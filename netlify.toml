@@ -1,0 +1,4 @@
+# Netlify hosts a read-only copy of the web screen: build it with `python scripts/export_site.py`
+# (it needs this machine's agent.sqlite3), then deploy site/. See README, "Public demo on Netlify".
+[build]
+  publish = "site"

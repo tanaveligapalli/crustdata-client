@@ -149,7 +149,9 @@ async function init() {
     });
   }
   show($("#replay-pill"), config.offline);
-  $("#run-hint").textContent = config.offline
+  $("#run-hint").textContent = config.static
+    ? "Public demo: pick an example to see what the agent found. Nothing here spends credits or sends email."
+    : config.offline
     ? "Replay mode: shows events that already ran online, at no cost. Drafting and sending are off."
     : `The first search takes a few minutes and is capped at ${config.credit_limit} credits. The same words again cost nothing.`;
 
@@ -190,6 +192,11 @@ async function startRun() {
     showAlert("Describe your event first: name, date, city, audience, host and website.");
     $("#description").focus();
     return;
+  }
+  if (state.config.static) {             // a static copy (scripts/export_site.py): no server to run a search
+    const example = (state.config.examples || []).find((e) => e.text.trim() === description);
+    if (!example) return showAlert("This public demo shows the example events only. Pick one above.");
+    return openRun(example.run_id);
   }
   setBusy($("#run-btn"), true);
   const { ok, data } = await api("/api/runs", { method: "POST", body: JSON.stringify({ description }) });

@@ -184,4 +184,4 @@ if __name__ == "__main__":
     from pathlib import Path
 
     path = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/web_fetch.json")
-    print(json.dumps(parse_web_fetch_response(json.loads(path.read_text())), indent=2, ensure_ascii=False))
+    print(json.dumps(parse_web_fetch_response(json.loads(path.read_text(encoding="utf-8"))), indent=2, ensure_ascii=False))

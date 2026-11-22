@@ -13,7 +13,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "web_fetch.json"
 
 class TestInstagramParser(unittest.TestCase):
     def setUp(self):
-        self.result = parse_web_fetch_response(json.loads(FIXTURE.read_text()))[0]
+        self.result = parse_web_fetch_response(json.loads(FIXTURE.read_text(encoding="utf-8")))[0]
 
     def test_handle(self):
         self.assertEqual(self.result["handle"], "incubationmasters")

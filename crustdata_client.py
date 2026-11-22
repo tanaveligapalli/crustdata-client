@@ -1,15 +1,23 @@
 """Crustdata API client with a SQLite response cache, a /web rate limiter,
-and retry-with-backoff on HTTP 429.
+retry-with-backoff, a credit limit and a cost ledger.
 
-Every request goes through ``CrustdataClient.request``:
+Every request goes through ``CrustdataClient.call``:
   1. The method, path and canonical JSON body are hashed (SHA-256).
-  2. The SQLite cache is checked; a hit returns the stored response with no
-     network call and no rate-limit cost.
-  3. On a miss, /web/* calls wait on a 10-requests-per-minute limiter, the API
-     is called, 429s are retried with backoff, and 2xx responses are cached.
+  2. The SQLite cache is checked; a hit that is still fresh (``ttl_hours``)
+     returns the stored response with no network call and no rate-limit cost.
+     It keeps the date it was first retrieved, so facts are never re-dated.
+  3. With ``offline=True`` a miss raises NotInCache instead of calling the API.
+  4. On a miss, the run's credit limit is checked, /web/* calls wait on a
+     10-requests-per-minute limiter, the API is called, 429s, 5xx errors and
+     network failures are retried with backoff, and 2xx responses are cached.
+  5. Every call, cached or not, is written to the cost ledger.
 
-Responses are returned as parsed JSON exactly as the API sent them. This
-module does not read any response fields.
+A source that keeps failing raises SourceUnavailable: the caller must hold the
+case for a person, never read the silence as "no results".
+
+``request`` returns just the parsed JSON, exactly as the API sent it. ``call``
+also returns when it was retrieved, whether it came from the cache, and what
+it cost. This module does not read any response fields.
 
 Endpoints and headers follow the Crustdata docs, API version 2025-11-01
 (https://docs.crustdata.com).
@@ -29,8 +37,12 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import ledger
 
 BASE_URL = "https://api.crustdata.com"
 API_VERSION = "2025-11-01"
@@ -45,15 +57,38 @@ MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 2.0
 BACKOFF_MAX_SECONDS = 60.0
 
+# Worth retrying: rate limited, server errors. status 0 = no response at all.
+RETRYABLE_STATUSES = {0, 429, 500, 502, 503, 504}
+
 
 class CrustdataError(Exception):
-    """Raised for non-2xx responses (after retries, for 429)."""
+    """Raised for non-2xx responses that retrying won't fix (bad request, no access, no credits)."""
 
     def __init__(self, status: int, body: Any, path: str):
         self.status = status
         self.body = body
         self.path = path
         super().__init__(f"Crustdata {path} returned HTTP {status}: {body!r}")
+
+
+class SourceUnavailable(CrustdataError):
+    """The source kept failing after every retry. Hold the case for a person."""
+
+
+class NotInCache(Exception):
+    """Offline mode is on and this request was never cached."""
+
+
+class BudgetExceeded(Exception):
+    """This run has spent its credit limit."""
+
+
+@dataclass
+class ApiResponse:
+    data: Any
+    retrieved_at: str      # when Crustdata returned it (ISO, UTC); kept when served from the cache
+    from_cache: bool
+    credits: float | None  # charged for this call; 0 from the cache; None if the API didn't say
 
 
 class RateLimiter:
@@ -100,13 +135,14 @@ class ResponseCache:
             )
             self._conn.commit()
 
-    def get(self, request_hash: str) -> Any | None:
+    def get(self, request_hash: str) -> tuple[Any, float] | None:
+        """Return (response, created_at unix seconds), or None if not cached."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT response FROM responses WHERE request_hash = ?",
+                "SELECT response, created_at FROM responses WHERE request_hash = ?",
                 (request_hash,),
             ).fetchone()
-        return None if row is None else json.loads(row[0])
+        return None if row is None else (json.loads(row[0]), row[1])
 
     def put(
         self,
@@ -156,39 +192,101 @@ class CrustdataClient:
         cache_path: str | os.PathLike[str] = DEFAULT_CACHE_PATH,
         base_url: str = BASE_URL,
         timeout: float = 120.0,
+        ttl_hours: dict[str, float] | None = None,
+        offline: bool = False,
+        run_id: str = "adhoc",
+        ledger_db: sqlite3.Connection | None = None,
+        credit_limit: float | None = None,
     ):
+        """
+        ttl_hours:    max cache age per path, plus a "default" key; None = never expires.
+        offline:      only serve from the cache (offline demo backup).
+        run_id:       which run the ledger charges this client's calls to.
+        ledger_db:    connection from agent_db.connect(); None = no ledger.
+        credit_limit: stop new API calls once this run has spent this many credits.
+        """
         self.api_key = api_key or os.environ.get(API_KEY_ENV)
-        if not self.api_key:
+        if not self.api_key and not offline:
             raise RuntimeError(f"Set the {API_KEY_ENV} environment variable.")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.cache = ResponseCache(cache_path)
         self.web_limiter = RateLimiter(WEB_MAX_REQUESTS, WEB_WINDOW_SECONDS)
+        self.ttl_hours = ttl_hours
+        self.offline = offline
+        self.run_id = run_id
+        self.ledger_db = ledger_db
+        self.credit_limit = credit_limit
 
     # -- core ---------------------------------------------------------------
 
     def request(self, path: str, body: Any, method: str = "POST") -> Any:
         """Cached, rate-limited, retrying call. Returns the parsed JSON response."""
+        return self.call(path, body, method).data
+
+    def call(self, path: str, body: Any, method: str = "POST") -> ApiResponse:
+        """Like ``request``, but also says when the data was retrieved and what it cost."""
         key = request_hash(method, path, body)
+
         cached = self.cache.get(key)
-        if cached is not None:
-            return cached
+        if cached is not None and self._is_fresh(path, cached[1]):
+            response, created_at = cached
+            self._record(path, "cached", key, credits=0)
+            return ApiResponse(response, _iso(created_at), from_cache=True, credits=0)
 
-        status, response = self._send_with_retry(method, path, body)
+        if self.offline:
+            raise NotInCache(f"{path} was never cached (request {key[:12]})")
+        self._check_credit_limit()
+
+        started = time.monotonic()
+        try:
+            status, headers, response = self._send_with_retry(method, path, body)
+        except CrustdataError:
+            self._record(path, "error", key)
+            raise
+        retrieved = time.time()
         self.cache.put(key, method, path, canonical_body(body), status, response)
-        return response
 
-    def _send_with_retry(self, method: str, path: str, body: Any) -> tuple[int, Any]:
+        credits = _credits_used(headers)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        self._record(path, "ok", key, credits=credits, duration_ms=duration_ms)
+        return ApiResponse(response, _iso(retrieved), from_cache=False, credits=credits)
+
+    def _is_fresh(self, path: str, created_at: float) -> bool:
+        if self.offline or self.ttl_hours is None:
+            return True
+        max_age_hours = self.ttl_hours.get(path, self.ttl_hours["default"])
+        return time.time() - created_at <= max_age_hours * 3600
+
+    def _check_credit_limit(self) -> None:
+        if self.credit_limit is None or self.ledger_db is None:
+            return
+        spent = ledger.credits_spent(self.ledger_db, self.run_id)
+        if spent >= self.credit_limit:
+            raise BudgetExceeded(f"Run {self.run_id} has spent {spent} of {self.credit_limit} credits")
+
+    def _record(self, path: str, status: str, key: str, credits: float | None = None,
+                duration_ms: int | None = None) -> None:
+        if self.ledger_db is not None:
+            ledger.record(self.ledger_db, self.run_id, "crustdata", path, status,
+                          credits=credits, request_hash=key, duration_ms=duration_ms)
+
+    def _send_with_retry(self, method: str, path: str, body: Any) -> tuple[int, dict[str, str], Any]:
         for attempt in range(MAX_RETRIES + 1):
             if path.startswith(WEB_PATH_PREFIX):
                 self.web_limiter.acquire()
-            status, headers, response = self._send(method, path, body)
-            if status != 429:
-                if 200 <= status < 300:
-                    return status, response
+            try:
+                status, headers, response = self._send(method, path, body)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as err:
+                # No response at all: timeout, DNS failure, dropped connection.
+                status, headers, response = 0, {}, f"{type(err).__name__}: {err}"
+
+            if 200 <= status < 300:
+                return status, headers, response
+            if status not in RETRYABLE_STATUSES:
                 raise CrustdataError(status, response, path)
             if attempt == MAX_RETRIES:
-                raise CrustdataError(status, response, path)
+                raise SourceUnavailable(status, response, path)
             time.sleep(self._backoff_seconds(attempt, headers))
         raise AssertionError("unreachable")
 
@@ -245,6 +343,18 @@ class CrustdataClient:
 
     def close(self) -> None:
         self.cache.close()
+
+
+def _credits_used(headers: dict[str, str]) -> float | None:
+    value = headers.get("x-credits-used")
+    try:
+        return float(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def _iso(unix_seconds: float) -> str:
+    return datetime.fromtimestamp(unix_seconds, timezone.utc).isoformat(timespec="seconds")
 
 
 def _lower_headers(headers: Any) -> dict[str, str]:

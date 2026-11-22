@@ -70,7 +70,7 @@ def main() -> int:
                 print(f"FAIL {name}: HTTP {err.status} {err.body!r}", file=sys.stderr)
                 continue
             out = FIXTURES / f"{name}.json"
-            out.write_text(json.dumps(response, indent=2, ensure_ascii=False) + "\n")
+            out.write_text(json.dumps(response, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             print(f"ok   {name} -> {out.relative_to(ROOT)}")
     finally:
         client.close()

@@ -149,7 +149,7 @@ def write_reports(rows: list[dict], search_log: list[dict]) -> str:
         lines.append(f"| {_cell(s['query'])} | {_cell(s.get('results', s.get('error')))} | "
                      f"{_cell(s.get('instagram_post_urls'))} | {_cell(s.get('new'))} |")
     md = "\n".join(lines) + "\n"
-    (REPORTS / "instagram_survey.md").write_text(md)
+    (REPORTS / "instagram_survey.md").write_text(md, encoding="utf-8")
     return md
 
 

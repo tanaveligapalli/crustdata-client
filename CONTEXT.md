@@ -71,6 +71,8 @@ Judged on: end-to-end execution 25 · facts and verification 20 · robustness 20
 | `scripts/capture_fixtures.py` | Saves one real response per endpoint to `tests/fixtures/` (only missing ones). |
 | `scripts/instagram_survey.py`, `reports/` | Survey: 15/15 Instagram posts parsed OK. |
 | `scripts/instagram_sponsor_summary.py` | Runs block 3b on every cached Instagram post and prints what resolved. |
+| `agent.py` | Block 8: the whole job, stage by stage (`run_step` each), replayable offline. Also the `outbox/` sender when Gmail isn't set up. |
+| `app.py`, `.streamlit/config.toml`, `demo/` | Block 8: the Streamlit screen (`streamlit run app.py`), its minimal theme, and the demo event descriptions. |
 | `backtest.py`, `scripts/backtest.py` | Block 5: do past events' real sponsors rank above non-sponsors, using only facts from before each event? |
 
 ### Using the client
@@ -166,7 +168,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 | 4 · Brief and scoring | Done, live (two wordings → same brief and ranking); **2 open issues below** | `brief.py`, `scoring.py` |
 | Host verification | Done, live (crash on a domain-less match fixed) | `host_check.py` |
 | 6 · Outreach and replies | Contacts live; approval fix; **email not run live: no Gmail env vars yet** | `outreach.py` |
-| End-to-end run (one command, brief → meetings) | **Open** | — |
+| 8 · End-to-end run and frontend | Done, live through sending (to `outbox/`); offline replay works | `agent.py`, `app.py` |
 | Signals `budget`, `audience_fit`, `reachable_contact` | **Open** | — |
 | 5 · Back-test | Built; trial run (55 posts) = **cannot verify**: no repeat sponsors in the sample | `backtest.py`, `scripts/backtest.py` |
 | 7 · Hard cases + kill test | Partly: "contact who has left" now tested; layoffs needs `budget`; kill test needs the end-to-end run | — |
@@ -249,7 +251,7 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
   Outreach refuses to start until `host_check` is verified `Evidence`.
   - Contacts: `find_contact` picks the best title by the `contact_roles` order and skips `contact_exclude_titles`. `business_email` stays `None` (see section 4: `/person/enrich` with the email add-on is untested).
   - The once-only send key is `email:{event}:{company_id}:{kind}`, so even a new run ID can't email the same company twice for the same event.
-  - An approved pitch is stored (`approved_drafts`). After a crash between approval and sending, that exact text is sent; before this fix a fresh model redraft could go out without approval.
+  - Every drafted pitch is stored (`pitch_drafts`) and reused: the text shown for approval, after a reload or after a crash between approval and sending, is the text that is sent. Before this, a fresh model redraft could go out without approval.
   - **Live check (22 Nov):** `find_contact` works (Navi → "Head - Strategic Partnerships & Fund Raise", Diageo → "Brand Manager Guinness"). The Navi pick is a fundraising title: consider adding "fund" to `contact_exclude_titles`.
   - **Still to do:** set `OUTREACH_SENDER`, `OUTREACH_TEAM_INBOX`, `OUTREACH_APP_PASSWORD` and run it live with a teammate playing the sponsor, to tick "done when".
 
@@ -260,11 +262,18 @@ Make your own file(s) so we don't collide. Add your settings as **your own top-l
 - Limit: it doesn't prove the host controls the site. A person still approves every email.
 - **Live check (22 Nov):** Razorpay with razorpay.com → verified. A made-up host on example.com → `cannot_verify` ("does not mention ..."); before the fix this crashed because identify returned a match with no domain.
 
-### Open: end-to-end run
-- One command that runs a whole job: description → `brief.make_brief` → `host_check.check_host` → `candidates.find_candidates` → `scoring.rank` → host picks companies → `outreach.find_contact` → `outreach.start_campaign`. Then `python outreach.py replies|follow-ups|status`.
-- Wrap each stage in `steps.run_step` so a kill and restart skips finished stages (records go through `dataclasses.asdict`).
-- Hold the run for a person (`needs_person`) when `failed_pools` is non-empty or the host isn't verified.
-- Print the cost of the job from the ledger at the end: credits and model dollars. The business case needs it.
+### Block 8 · End-to-end run and frontend (done)
+- **Run it:** `pip install -r requirements.txt`, set `CRUSTDATA_API_KEY` and `ANTHROPIC_API_KEY`, then `streamlit run app.py`. Pick an example from `demo/` or type a description, then Run.
+- **Screen (`app.py`):** brief → host check → ranked sponsors (score, confidence, why, how found) with each company's evidence → tick companies → contacts and pitches → read and approve each pitch → send → pipeline → cost of the job. It only shows things and collects choices; `agent.py` does the work.
+- **Stages (`agent.py`):** `make_brief`, `check_host`, `find_candidates` (ranked), `find_contact`, `draft_pitches`, `send_approved`, `pipeline`, `cost`.
+  - The run ID is a hash of the description, and each paid stage is a `steps.run_step`. The same description after a kill replays finished stages from the database, so nothing is paid for or sent twice.
+  - **Offline demo:** the "Replay from cache" switch opens the client with `offline=True` and blocks model calls (`agent.NotCached`). A description that ran online once replays fully with no API key.
+  - A failed source shows a warning and needs a person to tick "reviewed" before continuing. An unverified host blocks pitches.
+- **Pitches:** `draft_pitches` runs `outreach.start_campaign` with every approval answered "no", so it only drafts. Drafts are stored (`pitch_drafts`), so the text the host reads is the text `send_approved` sends.
+- **Email:** without `OUTREACH_*` env vars, approved emails are written to `outbox/<run>/NNN.eml` (gitignored) and the screen says so. With them, the team Gmail sends them.
+- **Replies stay in the terminal:** `python outreach.py replies RUN_ID brief.json` (the screen offers `brief.json` as a download). There a person approves each answer or invite before it is sent.
+- **Live run (22 Nov, `demo/fintech_summit.txt`):** 90 candidates, 2 contacts, 2 model-drafted pitches, 1 approved and written to the outbox. 6.81 credits and $0.03 for this run, because most searches were already cached from earlier runs.
+- **`records.py`** now has `brief_from_dict`, `candidate_from_dict`, `contact_from_dict` for records saved with `asdict`.
 
 ### Open: the other three signals
 - `budget`: headcount, headcount growth and funding from `/company/search` (`headcount`, `funding` groups, +0.2 credits/result each). Negative growth (layoffs) should lower it (a hard case).

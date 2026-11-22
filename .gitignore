@@ -5,3 +5,4 @@ __pycache__/
 agent.sqlite3
 .venv/
 .pytest_cache/
+outbox/

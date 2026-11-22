@@ -94,12 +94,13 @@ def ensure_tables(db: sqlite3.Connection) -> None:
         company_name TEXT NOT NULL,
         at           TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS approved_drafts (    -- exactly what the host approved
+    CREATE TABLE IF NOT EXISTS pitch_drafts (       -- the pitch shown for approval is the one sent
         run_id     TEXT NOT NULL,
         company_id INTEGER NOT NULL,
         to_role    TEXT NOT NULL,
         subject    TEXT NOT NULL,
         body       TEXT NOT NULL,
+        notes_json TEXT NOT NULL,
         PRIMARY KEY (run_id, company_id)
     );
     CREATE TABLE IF NOT EXISTS replies_seen (
@@ -331,14 +332,34 @@ def draft_pitch(candidate: Candidate, contact: Contact | None, brief: Brief,
         if draft and draft.get("body"):
             bad = unsupported_numbers(draft["subject"] + " " + draft["body"], _allowed_texts(brief, candidate))
             if not bad:
-                return Draft(candidate.company_id, candidate.name, "intro", to_role,
-                             draft["subject"], draft["body"], notes=notes, event_key=event_key(brief))
+                return _keep(db, run_id, Draft(candidate.company_id, candidate.name, "intro", to_role,
+                                               draft["subject"], draft["body"], notes=notes,
+                                               event_key=event_key(brief)))
             notes.append(f"model draft dropped: numbers not in the brief or evidence: {sorted(bad)}")
         else:
             notes.append("model draft unusable: used the template")
     subject, body = template_pitch(candidate, contact, brief)
-    return Draft(candidate.company_id, candidate.name, "intro", to_role, subject, body, notes=notes,
-                 event_key=event_key(brief))
+    return _keep(db, run_id, Draft(candidate.company_id, candidate.name, "intro", to_role, subject, body,
+                                   notes=notes, event_key=event_key(brief)))
+
+
+def _keep(db: sqlite3.Connection, run_id: str, draft: Draft) -> Draft:
+    """Save the pitch: the model isn't deterministic, so a redraft could differ from what was approved."""
+    ensure_tables(db)
+    db.execute("INSERT OR REPLACE INTO pitch_drafts VALUES (?, ?, ?, ?, ?, ?)",
+               (run_id, draft.company_id, draft.to_role, draft.subject, draft.body, json.dumps(draft.notes)))
+    db.commit()
+    return draft
+
+
+def saved_pitch(db: sqlite3.Connection, run_id: str, candidate: Candidate, brief: Brief) -> Draft | None:
+    """The pitch drafted earlier for this company, if any."""
+    row = db.execute("SELECT * FROM pitch_drafts WHERE run_id = ? AND company_id = ?",
+                     (run_id, candidate.company_id)).fetchone()
+    if row is None:
+        return None
+    return Draft(candidate.company_id, candidate.name, "intro", row["to_role"], row["subject"], row["body"],
+                 notes=json.loads(row["notes_json"]), event_key=event_key(brief))
 
 
 def follow_up(row: sqlite3.Row, brief: Brief, number: int) -> Draft:
@@ -463,22 +484,16 @@ def start_campaign(db: sqlite3.Connection, run_id: str, brief: Brief,
             continue
         if row["state"] not in ("drafted", "approved"):
             continue                                   # already sent, or finished
-        saved = db.execute("SELECT * FROM approved_drafts WHERE run_id = ? AND company_id = ?",
-                           (run_id, candidate.company_id)).fetchone()
-        if row["state"] == "approved" and saved:       # approved before a crash: send that exact text
-            approved_before_crash.append(Draft(candidate.company_id, candidate.name, "intro", saved["to_role"],
-                                               saved["subject"], saved["body"], event_key=event_key(brief)))
+        draft = saved_pitch(db, run_id, candidate, brief) or draft_pitch(candidate, contact, brief, model, db, run_id)
+        if row["state"] == "approved":                 # approved before a crash: don't ask again
+            approved_before_crash.append(draft)
             continue
-        draft = draft_pitch(candidate, contact, brief, model, db, run_id)
         drafts.append(draft)
         set_state(db, run_id, candidate.company_id, "drafted",
                   "pitch drafted from the brief and sourced evidence; waiting for approval")
 
     newly_approved = approve(drafts, run_id, config, ask, show)
     for d in newly_approved:
-        # A redraft after a crash could differ (the model isn't deterministic), so keep the approved text.
-        db.execute("INSERT OR REPLACE INTO approved_drafts VALUES (?, ?, ?, ?, ?)",
-                   (run_id, d.company_id, d.to_role, d.subject, d.body))
         set_state(db, run_id, d.company_id, "approved", "host approved the pitch")
     for d in approved_before_crash + newly_approved:
         if send_once(db, run_id, d, config, sender):

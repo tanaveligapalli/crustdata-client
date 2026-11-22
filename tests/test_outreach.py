@@ -428,6 +428,18 @@ class ApprovalSurvivesCrashTest(Base):
         self.assertIn("the approved wording", acme[0].get_content())
         self.assertFalse(any("Acme" in q for q in asked))   # already approved: not asked again
 
+    def test_a_pitch_shown_once_is_the_one_sent_later(self):
+        wording = {"now": "the wording the host read"}
+
+        def model(system, user, schema):
+            return json.dumps({"subject": "Sponsoring TechNova", "body": f"Hello, this is {wording['now']}."}), 0.0
+
+        self.campaign(Sender(), model=model, ask=lambda _: "n")   # shown, not approved yet
+        wording["now"] = "a different redraft"
+        s = Sender()
+        self.campaign(s, model=model)
+        self.assertTrue(all("the wording the host read" in m.get_content() for m in s.sent))
+
 
 if __name__ == "__main__":
     unittest.main()

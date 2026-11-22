@@ -120,3 +120,19 @@ class Contact:
     profile_url: str
     business_email: str | None
     evidence: list[Evidence] = field(default_factory=list)
+
+
+# -- back from JSON (steps.run_step saves records with dataclasses.asdict) ----------
+
+
+def brief_from_dict(d: dict[str, Any]) -> Brief:
+    return Brief(**{**d, "tiers": [Tier(**t) for t in d.get("tiers", [])]})
+
+
+def candidate_from_dict(d: dict[str, Any]) -> Candidate:
+    signals = [Signal(s["name"], s["value"], [Evidence(**e) for e in s["evidence"]]) for s in d.get("signals", [])]
+    return Candidate(**{**d, "signals": signals})
+
+
+def contact_from_dict(d: dict[str, Any]) -> Contact:
+    return Contact(**{**d, "evidence": [Evidence(**e) for e in d.get("evidence", [])]})

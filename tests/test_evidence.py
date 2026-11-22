@@ -81,6 +81,13 @@ class PageEvidenceTest(unittest.TestCase):
         page = "<script>var s = 'Title Partner: Acme';</script><p>Welcome</p>"
         self.assertFalse(evidence.quote_on_page("Title Partner: Acme", evidence.page_text(page)))
 
+    def test_quote_must_be_whole_words(self):
+        # A host called "Meta" is not verified by a page that only says "metadata".
+        self.assertFalse(evidence.quote_on_page("Meta", "Edit the page metadata here"))
+        self.assertFalse(evidence.quote_on_page("ACM", "Contact: ACME Corp"))
+        self.assertTrue(evidence.quote_on_page("Meta", "Sponsored by Meta, and others"))
+        self.assertTrue(evidence.quote_on_page("₹5 lakh", "Title: ₹5 lakh."))
+
 
 class WebFetchAndSnippetTest(unittest.TestCase):
     def test_instagram_caption_with_post_date_is_verified(self):

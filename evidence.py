@@ -89,9 +89,12 @@ def page_text(raw_html: str) -> str:
 
 
 def quote_on_page(quote: str, page_text: str) -> bool:
-    """True if the quote appears on the page, ignoring case, spacing and HTML entities."""
+    """True if the quote appears on the page as whole words, ignoring case, spacing and HTML
+    entities. Whole words: a host called "Meta" isn't on a page that only says "metadata"."""
     quote = _normalise(quote)
-    return bool(quote) and quote in _normalise(page_text)
+    if not quote:
+        return False
+    return re.search(r"(?<!\w)" + re.escape(quote) + r"(?!\w)", _normalise(page_text)) is not None
 
 
 def _normalise(text: str) -> str:

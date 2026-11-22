@@ -27,6 +27,12 @@ FIXTURES = ROOT / "tests" / "fixtures"
 CALLS = [
     # (fixture name, client method, request body)
     ("company_identify", "company_identify", {"domains": ["serverobotics.com"]}),
+    # Block 3b looks sponsors up by name: capture what a names lookup returns.
+    (
+        "company_identify_names",
+        "company_identify",
+        {"names": ["ITC Limited", "Trainocate Networks India Pvt Ltd", "WOW Momo"]},
+    ),
     (
         "company_search",
         "company_search",

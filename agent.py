@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 import sqlite3
 from dataclasses import asdict, dataclass, replace
 from email.message import EmailMessage
@@ -191,6 +192,89 @@ def send_approved(agent: Agent, brief: Brief, host: Evidence, selected: list[tup
 
 def pipeline(agent: Agent) -> list[dict]:
     return outreach.pipeline(agent.db, agent.run_id)
+
+
+# -- replies ------------------------------------------------------------------
+# With Gmail set up, replies are read from the team inbox. Without it (the demo), a person types
+# the sponsor's reply into the screen's demo inbox, from any sender address they like. Both go
+# through the same outreach.handle_replies: same labels, same once-only sends.
+
+
+def reply_source(agent: Agent) -> str:
+    return "gmail" if agent.email_ready else "demo"
+
+
+def _ensure_demo_inbox(db: sqlite3.Connection) -> None:
+    db.execute("""CREATE TABLE IF NOT EXISTS demo_inbox (
+                      message_id TEXT PRIMARY KEY,
+                      run_id     TEXT NOT NULL,
+                      company_id INTEGER NOT NULL,
+                      sender     TEXT NOT NULL,
+                      subject    TEXT NOT NULL,
+                      body       TEXT NOT NULL,
+                      created_at TEXT NOT NULL)""")
+
+
+def add_demo_reply(agent: Agent, company_id: int, sender: str, text: str) -> str:
+    """A sponsor's reply typed into the demo inbox. Only to a company we've emailed this run."""
+    outreach.ensure_tables(agent.db)
+    row = outreach.get_row(agent.db, agent.run_id, company_id)
+    if row is None or row["state"] in ("drafted", "approved"):
+        raise ValueError("Only companies we've emailed can reply.")
+    if "@" not in sender or not text.strip():
+        raise ValueError("Give a sender address and the reply's text.")
+    _ensure_demo_inbox(agent.db)
+    message_id = f"<demo-{uuid.uuid4().hex}@demo.local>"
+    subject = f"Re: [ref:{agent.run_id}:{company_id}] Sponsorship"   # the ref tag a real reply keeps
+    agent.db.execute("INSERT INTO demo_inbox VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (message_id, agent.run_id, company_id, sender.strip(), subject, text.strip(), agent_db.now_iso()))
+    agent.db.commit()
+    return message_id
+
+
+def _reply_reader(agent: Agent) -> Callable[[], list[outreach.Reply]]:
+    if agent.email_ready:
+        return outreach.imap_reader(agent.config["outreach"])
+
+    def read() -> list[outreach.Reply]:
+        _ensure_demo_inbox(agent.db)
+        return [outreach.Reply(r[0], r[1], r[2], r[3]) for r in agent.db.execute(
+            "SELECT message_id, sender, subject, body FROM demo_inbox WHERE run_id = ? ORDER BY created_at",
+            (agent.run_id,))]
+    return read
+
+
+def check_replies(agent: Agent, brief: Brief) -> list[dict]:
+    """Read new replies and sort each one. Declines, opt-outs and hand-offs to the host happen now;
+    an answer or meeting invite to the sponsor waits for approval (held_replies)."""
+    return outreach.handle_replies(agent.db, agent.run_id, brief, agent.config["outreach"], _reply_reader(agent),
+                                   _sender(agent), model=_pitch_model(agent), hold=True)
+
+
+def held_replies(agent: Agent) -> list[dict]:
+    return outreach.held_drafts(agent.db, agent.run_id)
+
+
+def send_held_replies(agent: Agent, ids: list[int]) -> int:
+    return outreach.send_held(agent.db, agent.run_id, ids, agent.config["outreach"], _sender(agent))
+
+
+def discard_held_replies(agent: Agent, ids: list[int]) -> None:
+    outreach.discard_held(agent.db, agent.run_id, ids)
+
+
+def reply_log(db: sqlite3.Connection, run_id: str) -> list[dict]:
+    """Every reply handled this run, newest first: who it was from, its label and (demo) its text.
+    Takes the database, not an Agent, so the web screen can read it without opening a client."""
+    outreach.ensure_tables(db)
+    _ensure_demo_inbox(db)
+    rows = db.execute(
+        """SELECT s.message_id, s.company_id, o.company_name, s.state, s.at, d.sender, d.body
+           FROM replies_seen s JOIN outreach o ON o.run_id = s.run_id AND o.company_id = s.company_id
+           LEFT JOIN demo_inbox d ON d.message_id = s.message_id
+           WHERE s.run_id = ? ORDER BY s.at DESC""", (run_id,)).fetchall()
+    return [{"company_id": r[1], "company": r[2], "label": r[3], "at": r[4], "sender": r[5], "text": r[6]}
+            for r in rows]
 
 
 def cost(agent: Agent) -> dict[str, float]:

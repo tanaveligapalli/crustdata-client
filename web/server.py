@@ -143,7 +143,7 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
     ensure_tables(db)
     view: dict[str, Any] = {"run_id": run_id, "job": job, "brief": None, "dropped": [], "host": None,
                             "sponsors": [], "excluded": [], "failed_pools": [], "total_found": 0,
-                            "pitches": [], "pipeline": []}
+                            "pitches": [], "pipeline": [], "people": [], "held_replies": [], "replies": []}
     brief_data = step_output(db, run_id, "brief")
     if brief_data is None:
         return view
@@ -180,6 +180,15 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
                 view["pitches"].append({"company_id": d.company_id, "company": d.company_name, "to_role": d.to_role,
                                         "subject": d.subject, "body": d.body, "notes": d.notes})
         view["pipeline"] = outreach.pipeline(db, run_id)
+        in_pipeline = {r["company_id"] for r in view["pipeline"]}
+        # People listed for companies the host picked but hasn't drafted yet: the host chooses one each.
+        for c in candidates:
+            people = step_output(db, run_id, f"contacts:{c.company_id}")
+            if people is not None and c.company_id not in in_pipeline:
+                view["people"].append({"company_id": c.company_id, "company": c.name,
+                                       "people": [public_person(p) for p in people]})
+        view["held_replies"] = [public_held(h, by_id) for h in outreach.held_drafts(db, run_id)]
+        view["replies"] = agent.reply_log(db, run_id)
 
     if debug:
         view["debug"] = {"host_type": brief.host_type or scoring_cfg["default_host_type"],
@@ -187,6 +196,20 @@ def run_view(db: sqlite3.Connection, run_id: str, scoring_cfg: dict[str, Any], d
                          "cost": cost(db, run_id),
                          "dropped": brief_data["dropped"]}
     return view
+
+
+def public_person(p: dict[str, Any]) -> dict[str, Any]:
+    """Business details only: name, current title, since when, professional profile."""
+    since = next((e.get("record_date") for e in p.get("evidence") or [] if e.get("record_date")), None)
+    return {"name": p["name"], "title": p["title"], "since": since, "profile_url": p.get("profile_url") or None}
+
+
+def public_held(h: dict[str, Any], by_id: dict[int, Candidate]) -> dict[str, Any]:
+    d = h["draft"]
+    return {"id": h["id"], "company_id": d.company_id, "company": d.company_name,
+            "kind": "Meeting invite" if d.kind == "invite" else "Answer",
+            "to_role": d.to_role, "subject": d.subject, "body": d.body, "notes": d.notes,
+            "attachments": [a[0] for a in d.attachments], "then": h["done_state"]}
 
 
 def cost(db: sqlite3.Connection, run_id: str) -> dict[str, float]:
@@ -335,7 +358,24 @@ class Workers:
         finally:
             _close(job)
 
-    def pitches(self, description: str, company_ids: list[int], say: Callable[[str], None]) -> None:
+    def contacts(self, description: str, company_ids: list[int], say: Callable[[str], None]) -> None:
+        """List the people at each picked company (one paid search each, then saved)."""
+        job = self._agent(description)
+        try:
+            brief, _ = agent.make_brief(job, description)
+            ranked, _ = agent.find_candidates(job, brief)
+            chosen = [c for c in ranked if c.company_id in set(company_ids) and c.excluded_reason is None]
+            for i, c in enumerate(chosen, 1):
+                say(f"Finding people at {c.name} ({i} of {len(chosen)})")
+                agent.find_contacts(job, c)
+        finally:
+            _close(job)
+
+    def pitches(self, description: str, company_ids: list[int], say: Callable[[str], None],
+                choices: dict[int, int | None] | None = None) -> None:
+        """Draft a pitch per company. `choices` maps a company to the index of the person the host
+        picked from its list (None = no one: write to the sponsorship team). Without choices, the
+        best-ranked person is used."""
         job = self._agent(description)
         try:
             brief, _ = agent.make_brief(job, description)
@@ -343,7 +383,13 @@ class Workers:
             ranked, _ = agent.find_candidates(job, brief)
             chosen = [c for c in ranked if c.company_id in set(company_ids) and c.excluded_reason is None]
             say("Finding the decision-maker at each company")
-            selected = [(c, agent.find_contact(job, c)) for c in chosen]
+            selected = []
+            for c in chosen:
+                if choices is None or c.company_id not in choices:
+                    selected.append((c, agent.find_contact(job, c)))
+                    continue
+                people, pick = agent.find_contacts(job, c), choices[c.company_id]
+                selected.append((c, people[pick] if pick is not None and 0 <= pick < len(people) else None))
             say("Drafting pitches from your brief and the sourced facts")
             agent.draft_pitches(job, brief, host, selected)
         finally:
@@ -357,9 +403,36 @@ class Workers:
             ranked, _ = agent.find_candidates(job, brief)
             drafted = {r[0] for r in job.db.execute("SELECT company_id FROM pitch_drafts WHERE run_id = ?",
                                                     (job.run_id,))}
-            selected = [(c, agent.find_contact(job, c)) for c in ranked if c.company_id in drafted]
+            # The contact saved with each pitch: no new person search.
+            selected = [(c, agent.pitched_contact(job, c.company_id)) for c in ranked if c.company_id in drafted]
             say("Sending the approved pitches")
             agent.send_approved(job, brief, host, selected, set(company_ids) & drafted)
+        finally:
+            _close(job)
+
+    def replies(self, description: str, say: Callable[[str], None]) -> None:
+        """Read new replies and sort them. Answers and invites wait for approval on the page."""
+        job = self._agent(description)
+        try:
+            brief, _ = agent.make_brief(job, description)
+            say("Reading replies" + (" from the team inbox" if job.email_ready else " from the demo inbox"))
+            agent.check_replies(job, brief)
+        finally:
+            _close(job)
+
+    def send_replies(self, description: str, draft_ids: list[int], say: Callable[[str], None]) -> None:
+        job = self._agent(description)
+        try:
+            say("Sending the approved replies")
+            agent.send_held_replies(job, draft_ids)
+        finally:
+            _close(job)
+
+    def quick(self, description: str, work: Callable[[Any], Any]) -> Any:
+        """Database-only steps (demo inbox, discarding a draft): no client calls, so open it offline."""
+        job = self.open_agent(description, offline=True, credit_limit=self.credit_limit)
+        try:
+            return work(job)
         finally:
             _close(job)
 
@@ -422,22 +495,47 @@ class App:
                     return 404, {"error": "No such run on this screen."}
                 if method == "GET" and len(parts) == 2:
                     return 200, run_view(db, run_id, self.scoring_cfg, want_debug, self.jobs.status(run_id))
-                if method == "POST" and len(parts) == 3 and parts[2] in ("search", "pitches", "send"):
+                if method == "POST" and len(parts) == 3 and parts[2] in self.ACTIONS:
                     return self.action(run_id, description, parts[2], body)
             return 404, {"error": "Not found"}
         finally:
             db.close()
 
+    ACTIONS = ("search", "contacts", "pitches", "send", "replies", "send-replies", "discard-replies", "demo-reply")
+
     def action(self, run_id: str, description: str, kind: str, body: dict[str, Any]) -> tuple[int, Any]:
         ids = [int(i) for i in body.get("company_ids") or []]
+        draft_ids = [int(i) for i in body.get("draft_ids") or []]
         if kind == "search":
             work = lambda say: self.workers.search(description, say)  # noqa: E731  (resume after a restart)
         elif self.offline:
-            return 409, {"error": "Replay mode: pitches and sending need a live server."}
+            return 409, {"error": "Replay mode: people, pitches, sending and replies need a live server."}
+        elif kind == "replies":
+            work = lambda say: self.workers.replies(description, say)  # noqa: E731
+        elif kind == "send-replies":
+            if not draft_ids:
+                return 400, {"error": "Approve at least one reply."}
+            work = lambda say: self.workers.send_replies(description, draft_ids, say)  # noqa: E731
+        elif kind == "discard-replies":
+            self.workers.quick(description, lambda job: agent.discard_held_replies(job, draft_ids))
+            return 200, {"run_id": run_id}
+        elif kind == "demo-reply":
+            if email_destination() == "team_inbox":
+                return 409, {"error": "Gmail is set up: reply to the email itself, then check replies."}
+            try:
+                self.workers.quick(description, lambda job: agent.add_demo_reply(
+                    job, int(body.get("company_id") or 0), str(body.get("sender") or ""), str(body.get("text") or "")))
+            except ValueError as e:
+                return 400, {"error": str(e)}
+            return 200, {"run_id": run_id}
         elif not ids:
             return 400, {"error": "Pick at least one company."}
+        elif kind == "contacts":
+            work = lambda say: self.workers.contacts(description, ids, say)  # noqa: E731
         elif kind == "pitches":
-            work = lambda say: self.workers.pitches(description, ids, say)  # noqa: E731
+            raw = body.get("choices")
+            choices = None if raw is None else {int(k): (None if v is None else int(v)) for k, v in raw.items()}
+            work = lambda say: self.workers.pitches(description, ids, say, choices)  # noqa: E731
         else:
             work = lambda say: self.workers.send(description, ids, say)  # noqa: E731
         if not self.jobs.start(run_id, "Starting", work):

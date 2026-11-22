@@ -153,6 +153,7 @@ outreach:                    # block 6: outreach and replies
   reply_lookback_days: 7
   require_verified_host: true   # outreach is blocked until host_check returns verified Evidence
   opt_out_line: "Not the right person, or don't want these emails? Reply \"unsubscribe\" and we won't contact you again."
+  contact_search_limit: 25   # people searched per company (~0.23 credits each, 22 Nov); the host picks one
   contact_roles:             # best first; matched against the person's current title
     - Head of Partnerships
     - Partnerships
@@ -162,6 +163,14 @@ outreach:                    # block 6: outreach and replies
     - Head of Marketing
     - Marketing Manager
     - CMO
+    - Brand Marketing
+    - Events
+    - Alliances
+    - Corporate Communications
+    - Marketing
+    - Brand
+    - Communications
+    - CSR
   contact_exclude_titles:    # a title with any of these words is never picked, whatever else it says
     - private equity           # whole words, plural allowed ("investor" also matches "Investors")
     - venture

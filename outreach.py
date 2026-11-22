@@ -110,6 +110,18 @@ def ensure_tables(db: sqlite3.Connection) -> None:
         state      TEXT NOT NULL,
         at         TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reply_drafts (      -- answers and invites waiting for approval on the screen
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id      TEXT NOT NULL,
+        company_id  INTEGER NOT NULL,
+        kind        TEXT NOT NULL,              -- answer:<reply>, invite
+        draft_json  TEXT NOT NULL,              -- exactly what will be sent
+        done_state  TEXT NOT NULL,              -- the company's state once it is sent
+        done_reason TEXT NOT NULL,
+        status      TEXT NOT NULL,              -- pending, sent, not_sent, discarded
+        updated_at  TEXT NOT NULL,
+        UNIQUE (run_id, company_id, kind)
+    );
     """)
     db.commit()
 
@@ -180,7 +192,7 @@ def find_contacts(client, candidate: Candidate, config: dict[str, Any]) -> list[
         ]},
         "fields": ["crustdata_person_id", "basic_profile", "social_handles",
                    "experience.employment_details.current"],
-        "limit": 10,
+        "limit": config.get("contact_search_limit", 10),
     }
     response = client.call("/person/search", body)
     ranked = []
@@ -665,6 +677,9 @@ def next_slot(db: sqlite3.Connection, run_id: str, config: dict[str, Any]) -> da
     """Slots are handed out in order, one per booked meeting, so two sponsors never share a slot."""
     booked = db.execute("SELECT COUNT(*) FROM outreach WHERE run_id = ? AND state = 'meeting_booked'",
                         (run_id,)).fetchone()[0]
+    # Invites waiting for approval on the screen hold their slot too.
+    booked += db.execute("SELECT COUNT(*) FROM reply_drafts WHERE run_id = ? AND kind = 'invite' "
+                         "AND status = 'pending'", (run_id,)).fetchone()[0]
     slots = config.get("meeting_slots") or []
     return datetime.fromisoformat(slots[booked]) if booked < len(slots) else None
 
@@ -672,13 +687,17 @@ def next_slot(db: sqlite3.Connection, run_id: str, config: dict[str, Any]) -> da
 def handle_replies(db: sqlite3.Connection, run_id: str, brief: Brief, config: dict[str, Any],
                    reader: Callable[[], list[Reply]], sender: Callable[[EmailMessage], None],
                    model: ModelCall | None = None,
-                   ask: Callable[[str], str] = input, show: Callable[[str], None] = print) -> list[dict]:
+                   ask: Callable[[str], str] = input, show: Callable[[str], None] = print,
+                   hold: bool = False) -> list[dict]:
     """Read the team inbox, classify each new reply, and take the next step for that company.
 
     A reply is marked handled only after its step is done, so a crash re-reads it; every
     email it triggers is do_once, so re-reading never sends twice. Its label is saved the
     first time (run_step): a second model call could label it differently and send a
     different email under a different once-only key.
+
+    hold=True (the web screen): an answer or invite to the sponsor isn't asked about here;
+    it is saved in reply_drafts and sent only when a person approves it (send_held).
     """
     ensure_tables(db)
     replies = reader()
@@ -699,14 +718,15 @@ def handle_replies(db: sqlite3.Connection, run_id: str, brief: Brief, config: di
         text = new_text(reply.body)
         state = run_step(db, run_id, f"classify:{reply.message_id}", lambda: classify(text, model, db, run_id))
         key = hashlib.sha256(reply.message_id.encode()).hexdigest()[:10]
-        _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, reply, text, state, key)
+        _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, reply, text, state, key, hold)
         db.execute("INSERT OR IGNORE INTO replies_seen VALUES (?, ?, ?, ?, ?)",
                    (reply.message_id, run_id, company_id, state, now_iso()))
         db.commit()
     return pipeline(db, run_id)
 
 
-def _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, reply, text, state, key) -> None:
+def _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, reply, text, state, key,
+                  hold=False) -> None:
     company_id, company = row["company_id"], row["company_name"]
     contact = json.loads(row["contact_json"]) if row["contact_json"] else None
     to_role = f"{contact['title']}, {company}" if contact else f"sponsorship team, {company}"
@@ -738,8 +758,8 @@ def _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, repl
         draft = Draft(company_id, company, f"answer:{key}", to_role, subject,
                       f"{hello}\n\n{answer}\n\n{brief.host_name}", in_reply_to=reply.message_id,
                       notes=[reason])
-        if approve([draft], run_id, config, ask, show) and send_once(db, run_id, draft, config, sender):
-            set_state(db, run_id, company_id, "replied_question", "question answered from the brief")
+        _approve_and_send(db, run_id, config, sender, ask, show, draft,
+                          "replied_question", "question answered from the brief", hold)
         return
 
     # replied_interested: book a meeting
@@ -758,9 +778,68 @@ def _act_on_reply(db, run_id, brief, config, sender, model, ask, show, row, repl
         body += f" If another time suits you better, pick one here: {config['booking_link']}"
     draft = Draft(company_id, company, "invite", to_role, subject, body + f"\n\n{brief.host_name}",
                   attachments=attachments, in_reply_to=reply.message_id, event_key=event_key(brief))
+    _approve_and_send(db, run_id, config, sender, ask, show, draft, "meeting_booked",
+                      f"meeting invite sent for {slot.isoformat()}" if slot else "booking link sent", hold)
+
+
+def _approve_and_send(db, run_id, config, sender, ask, show, draft: Draft, done_state: str, done_reason: str,
+                      hold: bool) -> None:
+    """Terminal: ask now. Screen (hold): save the draft; send_held sends it once a person approves."""
+    if hold:
+        db.execute("""INSERT OR IGNORE INTO reply_drafts
+                      (run_id, company_id, kind, draft_json, done_state, done_reason, status, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                   (run_id, draft.company_id, draft.kind, json.dumps(asdict(draft)), done_state, done_reason,
+                    now_iso()))
+        db.commit()
+        return
     if approve([draft], run_id, config, ask, show) and send_once(db, run_id, draft, config, sender):
-        set_state(db, run_id, company_id, "meeting_booked",
-                  f"meeting invite sent for {slot.isoformat()}" if slot else "booking link sent")
+        set_state(db, run_id, draft.company_id, done_state, done_reason)
+
+
+def held_drafts(db: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    """Answers and invites waiting for a person's approval, oldest first."""
+    ensure_tables(db)
+    out = []
+    for r in db.execute("SELECT * FROM reply_drafts WHERE run_id = ? AND status = 'pending' ORDER BY id", (run_id,)):
+        out.append({"id": r["id"], "company_id": r["company_id"], "kind": r["kind"],
+                    "draft": _draft_from_json(r["draft_json"]), "done_state": r["done_state"]})
+    return out
+
+
+def send_held(db: sqlite3.Connection, run_id: str, ids: list[int], config: dict[str, Any],
+              sender: Callable[[EmailMessage], None]) -> int:
+    """Send approved held drafts exactly as saved, each at most once. Returns how many were sent."""
+    sent = 0
+    for item in held_drafts(db, run_id):
+        if item["id"] not in ids:
+            continue
+        row = db.execute("SELECT done_state, done_reason FROM reply_drafts WHERE id = ?", (item["id"],)).fetchone()
+        ok = send_once(db, run_id, item["draft"], config, sender)   # opted out or unsure: state says why
+        if ok:
+            set_state(db, run_id, item["company_id"], row["done_state"], row["done_reason"])
+            sent += 1
+        db.execute("UPDATE reply_drafts SET status = ?, updated_at = ? WHERE id = ?",
+                   ("sent" if ok else "not_sent", now_iso(), item["id"]))
+        db.commit()
+    return sent
+
+
+def discard_held(db: sqlite3.Connection, run_id: str, ids: list[int]) -> None:
+    """The host chose not to send a drafted reply: a person takes the thread from here."""
+    for item in held_drafts(db, run_id):
+        if item["id"] in ids:
+            db.execute("UPDATE reply_drafts SET status = 'discarded', updated_at = ? WHERE id = ?",
+                       (now_iso(), item["id"]))
+            db.commit()
+            set_state(db, run_id, item["company_id"], "needs_person",
+                      f"host chose not to send the drafted {item['kind'].split(':')[0]}: reply yourself")
+
+
+def _draft_from_json(text: str) -> Draft:
+    d = json.loads(text)
+    d["attachments"] = [tuple(a) for a in d.get("attachments", [])]
+    return Draft(**d)
 
 
 def _handoff(db, run_id, config, sender, ask, show, row, reply, text, key, reason, keep_state=False) -> None:

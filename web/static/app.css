@@ -374,6 +374,48 @@ details.quiet ul { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--ink-so
 .pitch-foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.8rem 1.25rem; border-top: 1.5px solid var(--line); }
 .state-pill { font-size: 0.78rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 100px; background: var(--green-light); border: 1.5px solid var(--ink); }
 
+/* -- people to pitch ---------------------------------------------------------------- */
+
+.people { margin-top: 3rem; }
+.people-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); gap: 1.25rem; }
+.people-card { padding: 1.1rem 1.25rem 1.25rem; }
+.people-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 0.8rem; }
+.count-pill { flex: none; font-size: 0.78rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 100px; border: 1.5px solid var(--ink); background: var(--blue-light); }
+.person-list { display: grid; gap: 0.5rem; }
+.person { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.65rem 0.8rem; border: 1.5px solid var(--line); border-radius: 0.7rem; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.person:hover { background: var(--paper); }
+.person:has(input:checked) { border-color: var(--ink); background: #fffbea; box-shadow: var(--shadow-sm); }
+.person input { margin: 0.2rem 0 0; width: 1.05rem; height: 1.05rem; accent-color: var(--ink); flex: none; }
+.person-main { display: grid; gap: 0.1rem; min-width: 0; }
+.person-name { font-weight: 600; }
+.person-line { font-size: 0.86rem; color: var(--muted); overflow-wrap: anywhere; }
+.person-line:nth-child(2) { color: var(--ink-soft); }
+.person-link { font-size: 0.82rem; font-weight: 600; color: var(--blue); justify-self: start; margin-top: 0.15rem; }
+.person-none .person-name { font-weight: 500; }
+
+/* -- replies ------------------------------------------------------------------------ */
+
+.replies { margin-top: 2rem; display: grid; gap: 1.25rem; }
+.replies-bar { margin-bottom: 0; align-items: center; }
+.replies-label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.7rem; }
+.demo-inbox { display: grid; gap: 0.8rem; background: var(--amber-light); }
+.demo-inbox .card-title { margin: 0; }
+.demo-inbox label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
+.demo-inbox input, .demo-inbox select, .demo-inbox textarea { font: 400 0.95rem var(--sans); padding: 0.55rem 0.7rem; border: 1.5px solid var(--ink); border-radius: var(--radius); background: var(--white); color: var(--ink); width: 100%; box-sizing: border-box; }
+.demo-inbox textarea { resize: vertical; min-height: 0; height: auto; }
+.demo-inbox .btn { justify-self: start; }
+.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+.held-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.reply-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.reply { border: 1.5px solid var(--line); border-left: 4px solid var(--blue); border-radius: 0.7rem; padding: 0.7rem 0.9rem; background: var(--white); }
+.reply-meeting_booked, .reply-replied_interested { border-left-color: var(--green); }
+.reply-declined, .reply-opted_out { border-left-color: #9a998f; }
+.reply-needs_person, .reply-negotiating { border-left-color: var(--peach); }
+.reply-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+.reply-head b { font-family: var(--serif); font-size: 1rem; }
+.reply-text { margin: 0.4rem 0 0.3rem; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.deal-contact { display: block; color: var(--ink-soft) !important; font-size: 0.82rem; margin-bottom: 0.15rem; }
+
 /* -- pipeline board ------------------------------------------------------------------ */
 
 .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
@@ -442,6 +484,7 @@ details.quiet ul { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--ink-so
   .sponsor .pick { grid-column: 1 / -1; justify-self: start; }
   .debug-box { grid-column: 1 / -1; }
   .facts { grid-template-columns: 1fr; gap: 0.15rem; }
+  .demo-grid { grid-template-columns: 1fr; }
   .facts dd { margin-bottom: 0.6rem; }
   .quote blockquote { font-size: 1.15rem; padding-right: 0; }
 }

@@ -11,6 +11,8 @@ const state = {
   debug: false,
   picked: new Set(),
   approved: new Set(),
+  choices: {},           // company_id -> index of the person picked in its list (null = no one)
+  heldApproved: new Set(),
   reviewedFailures: false,
   timer: null,
   rendered: {},          // what each list was last drawn from, so polling doesn't redraw it
@@ -31,9 +33,15 @@ const COLUMNS = [
   { key: "sent", title: "Sent", states: ["sent", "follow_up_sent"] },
   { key: "replied", title: "In conversation", states: ["replied_question", "replied_interested", "negotiating"] },
   { key: "booked", title: "Meeting booked", states: ["meeting_booked"] },
-  { key: "closed", title: "Closed", states: ["declined", "opted_out", "no_response"] },
+  { key: "closed", title: "Rejected", states: ["declined", "opted_out", "no_response"] },
   { key: "person", title: "Needs you", states: ["needs_person"] },
 ];
+const REPLY_LABELS = {
+  replied_question: "Asked a question", replied_interested: "Wants to meet", negotiating: "Wants different terms",
+  declined: "Said no", opted_out: "Asked not to be contacted", needs_person: "Couldn't tell: needs you",
+};
+const SENT_STATES = ["sent", "follow_up_sent", "replied_question", "replied_interested", "negotiating",
+  "meeting_booked", "declined", "opted_out", "no_response", "needs_person"];
 const HOST_TYPES = { university: "University", ngo: "NGO", company: "Company", community: "Community" };
 const MONO_COLORS = ["#fecc4c", "#ef987c", "#d9e5ff", "#ffd6f6", "#dff5e8", "#fcf3d2"];
 const ARROW = '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'; // static markup only
@@ -168,8 +176,13 @@ async function init() {
   drawSourcesStrip();
   loadRecent();
   $("#run-btn").addEventListener("click", startRun);
-  $("#draft-btn").addEventListener("click", draftPitches);
+  $("#draft-btn").addEventListener("click", findPeople);
+  $("#pitch-people-btn").addEventListener("click", draftPitches);
   $("#send-btn").addEventListener("click", sendApproved);
+  $("#check-replies-btn").addEventListener("click", (e) => action("replies", [], e.currentTarget));
+  $("#send-held-btn").addEventListener("click", sendHeld);
+  $("#discard-held-btn").addEventListener("click", discardHeld);
+  $("#demo-inbox").addEventListener("submit", addDemoReply);
 
   const match = location.hash.match(/^#run=([\w-]+)/);
   if (match) openRun(match[1]);
@@ -213,6 +226,8 @@ function openRun(runId) {
   if (state.runId !== runId) {
     state.picked.clear();
     state.approved.clear();
+    state.choices = {};
+    state.heldApproved.clear();
     state.reviewedFailures = false;
     state.rendered = {};
     delete $("#failed").dataset.drawn;
@@ -239,20 +254,54 @@ async function refresh() {
   if (data.job && data.job.running) state.timer = setTimeout(refresh, 2000);
 }
 
-async function action(kind, companyIds, button) {
+async function action(kind, companyIds, button, extra = {}) {
   setBusy(button, true);
   const { ok, status, data } = await api(`/api/runs/${encodeURIComponent(state.runId)}/${kind}`, {
-    method: "POST", body: JSON.stringify({ company_ids: [...companyIds] }),
+    method: "POST", body: JSON.stringify({ company_ids: [...companyIds], ...extra }),
   });
   setBusy(button, false);
-  if (!ok && status !== 409) return showAlert(data.error || "Something went wrong.");
+  if (!ok && status !== 409) { showAlert(data.error || "Something went wrong."); return false; }
   if (!ok) showAlert(data.error);
   refresh();
+  return ok;
+}
+
+function findPeople() {
+  if (!state.picked.size) return;
+  action("contacts", state.picked, $("#draft-btn"));
 }
 
 function draftPitches() {
-  if (!state.picked.size) return;
-  action("pitches", state.picked, $("#draft-btn"));
+  const companies = (state.view?.people || []).map((c) => c.company_id);
+  if (!companies.length) return;
+  const choices = Object.fromEntries(companies.map((id) => [id, state.choices[id] ?? null]));
+  action("pitches", companies, $("#pitch-people-btn"), { choices });
+}
+
+function sendHeld() {
+  const ids = [...state.heldApproved];
+  if (!ids.length) return;
+  const where = state.config.email === "team_inbox" ? "the team inbox" : "the outbox/ folder on this machine";
+  if (!confirm(`Send ${ids.length} repl${ids.length > 1 ? "ies" : "y"}?\n\nThey go to ${where}, exactly as shown, once each.`)) return;
+  action("send-replies", [], $("#send-held-btn"), { draft_ids: ids }).then(() => state.heldApproved.clear());
+}
+
+function discardHeld() {
+  const ids = [...state.heldApproved];
+  if (!ids.length) return;
+  if (!confirm(`Don't send ${ids.length} drafted repl${ids.length > 1 ? "ies" : "y"}? Those companies move to "Needs you" so a person replies.`)) return;
+  action("discard-replies", [], $("#discard-held-btn"), { draft_ids: ids }).then(() => state.heldApproved.clear());
+}
+
+async function addDemoReply(event) {
+  event.preventDefault();
+  const button = $("#demo-add-btn");
+  const added = await action("demo-reply", [], button, {
+    company_id: Number($("#demo-company").value), sender: $("#demo-sender").value.trim(), text: $("#demo-text").value.trim(),
+  });
+  if (!added) return;
+  $("#demo-text").value = "";
+  action("replies", [], $("#check-replies-btn"));      // sort it straight away, as a real check would
 }
 
 function sendApproved() {
@@ -314,8 +363,10 @@ function render(view) {
   drawHost(view.host);
   drawDebugPanel(view);
   drawSponsors(view, running);
+  drawPeople(view, running);
   drawPitches(view, running);
   drawPipeline(view);
+  drawReplies(view, running);
   $("#footer-run").textContent = `Run ${view.run_id}`;
   if (view.sponsors.some((s) => s.logo || plainDomain(s.domain))) drawLogoStrip(view.sponsors);
 }
@@ -523,27 +574,138 @@ function pitchCard(p, pitchState) {
   } else {
     foot = el("span", { class: "state-pill", text: pitchState.replace(/_/g, " ") });
   }
-  card.append(
+  card.append(...[   // append() would turn a null into the text "null"
     el("div", { class: "pitch-head" },
       el("p", {}, el("span", { class: "label", text: "To" }), p.to_role),
       el("p", {}, el("span", { class: "label", text: "Company" }), p.company)),
     el("p", { class: "pitch-subject", text: p.subject }),
     el("pre", { class: "pitch-body", text: p.body }),
     p.notes && p.notes.length ? el("p", { class: "pitch-notes", text: p.notes.join(" · ") }) : null,
-    el("div", { class: "pitch-foot" }, el("span", { class: "small", text: "Sent once, exactly as shown" }), foot));
+    el("div", { class: "pitch-foot" }, el("span", { class: "small", text: "Sent once, exactly as shown" }), foot),
+  ].filter(Boolean));
   return card;
+}
+
+/* -- people: the host picks who to pitch at each company ------------------------------ */
+
+function drawPeople(view, running) {
+  const groups = view.people || [];
+  show($("#people"), groups.length > 0);
+  $("#people-count").textContent = String(groups.length);
+  $("#people-plural").textContent = groups.length === 1 ? "y" : "ies";
+  $("#pitch-people-btn").disabled = !groups.length || running || state.config.offline;
+  for (const g of groups) if (!(g.company_id in state.choices)) state.choices[g.company_id] = g.people.length ? 0 : null;
+
+  const signature = JSON.stringify(groups.map((g) => [g.company_id, g.people.map((p) => p.name)]));
+  if (state.rendered.people === signature) return;
+  state.rendered.people = signature;
+  $("#people-list").replaceChildren(...groups.map(peopleCard));
+}
+
+function peopleCard(group) {
+  const name = `person-${group.company_id}`;
+  const option = (index, title, lines, link) => {
+    const radio = el("input", { type: "radio", name, value: String(index) });
+    radio.checked = (state.choices[group.company_id] ?? null) === index;
+    radio.addEventListener("change", () => { state.choices[group.company_id] = index; });
+    return el("label", { class: "person" + (index === null ? " person-none" : "") }, radio,
+      el("span", { class: "person-main" },
+        el("span", { class: "person-name", text: title }),
+        lines.map((l) => el("span", { class: "person-line", text: l })),
+        link ? el("a", { class: "person-link", href: link, target: "_blank", rel: "noopener noreferrer", text: "Profile" }) : null));
+  };
+  const count = group.people.length;
+  return el("article", { class: "card people-card" },
+    el("div", { class: "people-head" },
+      el("p", { class: "sponsor-name", text: group.company }),
+      el("span", { class: "count-pill", text: count ? `${count} ${count === 1 ? "person" : "people"}` : "No one found" })),
+    el("div", { class: "person-list" },
+      group.people.map((p, i) => option(i, p.name, [p.title, p.since ? `In this role since ${niceDate(p.since)}` : "Start date not listed"], safeUrl(p.profile_url))),
+      option(null, "No one here", ["The pitch goes to the company's sponsorship team"], null)));
+}
+
+/* -- replies ------------------------------------------------------------------------ */
+
+function drawReplies(view, running) {
+  const sent = view.pipeline.filter((r) => SENT_STATES.includes(r.state));
+  const gmail = state.config.email === "team_inbox";
+  show($("#replies"), sent.length > 0);
+  $("#reply-source").textContent = sent.length
+    ? (gmail ? "Replies are read from the team inbox." : "Gmail isn't set up: replies come from the demo inbox below.") : "";
+  $("#check-replies-btn").disabled = running || state.config.offline;
+
+  show($("#demo-inbox"), sent.length > 0 && !gmail && !state.config.offline);
+  const select = $("#demo-company");
+  const options = sent.map((r) => [String(r.company_id), r.company]);
+  if (select.dataset.drawn !== JSON.stringify(options)) {
+    const keep = select.value;
+    select.replaceChildren(...options.map(([id, company]) => el("option", { value: id, text: company })));
+    if (options.some(([id]) => id === keep)) select.value = keep;
+    select.dataset.drawn = JSON.stringify(options);
+  }
+
+  const held = view.held_replies || [];
+  for (const id of [...state.heldApproved]) if (!held.some((h) => h.id === id)) state.heldApproved.delete(id);
+  show($("#held"), held.length > 0);
+  const signature = JSON.stringify(held.map((h) => h.id));
+  if (state.rendered.held !== signature) {
+    state.rendered.held = signature;
+    $("#held-list").replaceChildren(...held.map(heldCard));
+  }
+  updateHeldBar(running);
+
+  const log = view.replies || [];
+  show($("#reply-log-wrap"), log.length > 0);
+  $("#reply-log").replaceChildren(...log.map((r) => el("li", { class: `reply reply-${r.label}` },
+    el("div", { class: "reply-head" },
+      el("b", { text: r.company }),
+      el("span", { class: "state-pill", text: REPLY_LABELS[r.label] || r.label.replace(/_/g, " ") })),
+    r.text ? el("p", { class: "reply-text", text: r.text }) : null,
+    el("p", { class: "small", text: [r.sender, niceDate(r.at)].filter(Boolean).join(" · ") }))));
+}
+
+function heldCard(h) {
+  const box = el("input", { type: "checkbox", "aria-label": `Approve the ${h.kind.toLowerCase()} to ${h.company}` });
+  box.checked = state.heldApproved.has(h.id);
+  const card = el("article", { class: "pitch" + (box.checked ? " is-approved" : "") });
+  box.addEventListener("change", () => {
+    if (box.checked) state.heldApproved.add(h.id); else state.heldApproved.delete(h.id);
+    card.classList.toggle("is-approved", box.checked);
+    updateHeldBar(false);
+  });
+  card.append(...[
+    el("div", { class: "pitch-head" },
+      el("p", {}, el("span", { class: "label", text: "Reply" }), h.kind),
+      el("p", {}, el("span", { class: "label", text: "To" }), h.to_role)),
+    el("p", { class: "pitch-subject", text: h.subject }),
+    el("pre", { class: "pitch-body", text: h.body }),
+    h.attachments.length ? el("p", { class: "pitch-notes", text: `Attached: ${h.attachments.join(", ")}` }) : null,
+    h.notes && h.notes.length ? el("p", { class: "pitch-notes", text: h.notes.join(" · ") }) : null,
+    el("div", { class: "pitch-foot" },
+      el("span", { class: "small", text: h.then === "meeting_booked" ? "Sending it books the meeting" : "Sent once, exactly as shown" }),
+      el("label", { class: "pick" }, box, "Approve")),
+  ].filter(Boolean));
+  return card;
+}
+
+function updateHeldBar(running) {
+  const n = state.heldApproved.size;
+  $("#held-count").textContent = String(n);
+  $("#send-held-btn").disabled = !n || running || state.config.offline;
+  $("#discard-held-btn").disabled = !n || running || state.config.offline;
 }
 
 function drawPipeline(view) {
   const rows = view.pipeline;
   show($("#pipeline"), rows.length > 0);
-  $("#reply-cmd").textContent = `python outreach.py replies ${view.run_id} brief.json`;
   $("#board").replaceChildren(...COLUMNS.map((col) => {
     const deals = rows.filter((r) => col.states.includes(r.state));
     return el("div", { class: `column col-${col.key}` },
       el("div", { class: "column-head" }, el("span", { text: col.title }), el("span", { class: "count", text: String(deals.length) })),
       el("div", { class: "column-body" }, deals.length
-        ? deals.map((r) => el("div", { class: "deal" }, el("b", { text: r.company }), el("span", { text: r.why || r.state.replace(/_/g, " ") })))
+        ? deals.map((r) => el("div", { class: "deal" }, el("b", { text: r.company }),
+            r.contact ? el("span", { class: "deal-contact", text: r.contact }) : null,
+            el("span", { text: r.why || r.state.replace(/_/g, " ") })))
         : el("p", { class: "empty", text: "Nothing yet" })));
   }));
 }

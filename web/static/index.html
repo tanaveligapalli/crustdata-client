@@ -180,8 +180,23 @@
             <ul id="excluded-list"></ul>
           </details>
           <div class="action-bar" id="pick-bar" hidden>
-            <p><strong id="pick-count">0</strong> picked. We'll find the decision-maker at each and draft a pitch.</p>
+            <p><strong id="pick-count">0</strong> picked. We'll list the people at each, and you choose who to pitch.</p>
             <button class="btn btn-blue" id="draft-btn" type="button">
+              <span class="btn-text">Find people</span>
+              <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="people" id="people" hidden aria-labelledby="people-h">
+          <div class="section-bar">
+            <h3 class="h3" id="people-h">Who to pitch</h3>
+            <p class="small">People in a partnerships, sponsorship, brand, marketing or events role at each company now, best fit first. Pick one each.</p>
+          </div>
+          <div class="people-list" id="people-list"></div>
+          <div class="action-bar">
+            <p><strong id="people-count">0</strong> compan<span id="people-plural">ies</span> ready. The pitch is addressed to the person you pick.</p>
+            <button class="btn btn-blue" id="pitch-people-btn" type="button">
               <span class="btn-text">Draft pitches</span>
               <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
             </button>
@@ -206,9 +221,47 @@
         <section class="pipeline" id="pipeline" hidden aria-labelledby="pipeline-h">
           <div class="section-bar">
             <h3 class="h3" id="pipeline-h">Pipeline</h3>
-            <p class="small">Replies are read in the terminal: <code id="reply-cmd"></code></p>
+            <p class="small" id="reply-source"></p>
           </div>
           <div class="board" id="board"></div>
+
+          <div class="replies" id="replies" hidden>
+            <div class="section-bar replies-bar">
+              <h3 class="h3">Replies</h3>
+              <button class="btn btn-sm btn-yellow" id="check-replies-btn" type="button"><span class="btn-text">Check for replies</span></button>
+            </div>
+
+            <form class="card demo-inbox" id="demo-inbox" hidden>
+              <p class="card-title">Demo inbox</p>
+              <p class="small">Gmail isn't set up, so type a sponsor's reply here as if it came to the team inbox. Then check for replies.</p>
+              <div class="demo-grid">
+                <label>Company<select id="demo-company" required></select></label>
+                <label>From<input id="demo-sender" type="email" required placeholder="priya@sponsor.example"></label>
+              </div>
+              <label>Reply<textarea id="demo-text" rows="3" required placeholder="Sounds interesting, let's set up a call next week."></textarea></label>
+              <button class="btn btn-sm btn-black" id="demo-add-btn" type="submit"><span class="btn-text">Add to inbox</span></button>
+            </form>
+
+            <div id="held" hidden>
+              <p class="replies-label">Waiting for your approval</p>
+              <div class="pitch-list" id="held-list"></div>
+              <div class="action-bar">
+                <p><strong id="held-count">0</strong> approved. Each is sent once, exactly as shown.</p>
+                <div class="held-actions">
+                  <button class="btn btn-sm btn-peach" id="discard-held-btn" type="button" disabled><span class="btn-text">Don't send</span></button>
+                  <button class="btn btn-pink" id="send-held-btn" type="button" disabled>
+                    <span class="btn-text">Send approved</span>
+                    <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7-8-1z"/></svg></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div id="reply-log-wrap" hidden>
+              <p class="replies-label">Received</p>
+              <ul class="reply-log" id="reply-log"></ul>
+            </div>
+          </div>
         </section>
       </div>
     </div>

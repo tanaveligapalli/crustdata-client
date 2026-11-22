@@ -44,6 +44,12 @@ browser by a `--debug` server, so start it without `--debug` for anyone who isn'
 It listens on this machine only; each new search is capped at 150 credits (`--credit-limit` changes it). Logos cost 0.03
 credits per company shown (once; they're cached).
 
+**Demo video:** with a `--debug` server running and the keys set, `python scripts/record_demo.py`
+records the whole job for `demo/parc_health_camp.txt` to `recordings/` (gitignored): people,
+pitches, sandbox sending, demo-inbox replies and a booked meeting. It needs
+`pip install playwright imageio-ffmpeg` and Google Chrome. It records a fresh run, so the run's
+outreach must not have been sent yet (sending is once-only by design).
+
 ### Public demo on Netlify (read-only)
 
 Netlify serves files; it can't run the agent (a search is minutes of Python with a SQLite

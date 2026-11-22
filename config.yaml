@@ -1,0 +1,12 @@
+# One top-level section per block. Add yours below; don't edit other sections.
+
+instagram_sponsors:          # block 3b
+  model: claude-opus-5-5
+  effort: low                # extraction is simple; raise only if checks drop too much
+  max_tokens: 4096
+  price_usd_per_mtok:        # for the cost ledger
+    claude-opus-5-5: {input: 4.00, output: 20.00}
+  match:
+    min_confidence: 0.8      # take a company only at or above this confidence_score
+    ambiguity_margin: 0.05   # another company within this of the top score = ambiguous
+    identify_batch_size: 25  # names per /company/identify call (API max 25)

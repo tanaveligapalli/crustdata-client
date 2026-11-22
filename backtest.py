@@ -31,12 +31,15 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+import evidence
 import scoring
-from candidates import Hit, merge
+from candidates import Hit, linkedin_sponsor_pool, merge
 from records import Brief, Evidence
+from steps import run_step
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 POST_SOURCES = {"linkedin_post", "instagram_post"}
@@ -74,6 +77,44 @@ def load_facts(db: sqlite3.Connection, run_ids: list[str]) -> list[tuple[int, Ev
                         r["record_date"], r["retrieved_at"], r["source_type"], r["status"], r["missing"])
         out.append((int(r["subject"].split(":", 1)[1]), fact))
     return out
+
+
+def month_starts(first: str, last: str) -> list[date]:
+    """'2025-11', '2026-01' -> [2025-11-01, 2025-12-01, 2026-01-01]."""
+    year, month = map(int, first.split("-"))
+    end = tuple(map(int, last.split("-")))
+    out = []
+    while (year, month) <= end:
+        out.append(date(year, month, 1))
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return out
+
+
+def collect(months: list[date], posts_per_month: int, profile: str, client: Any, db: sqlite3.Connection,
+            run_id: str, candidates_cfg: dict[str, Any], ig_config: dict[str, Any],
+            call_model: Callable[[str, str], tuple[str, float | None]]) -> dict[str, int]:
+    """Collect past-sponsor facts month by month, with block 3's own LinkedIn post pool, and save
+    them to the evidence ledger under `run_id`. Returns facts saved per month.
+
+    Each month is one step: after a kill and restart, finished months aren't fetched or paid
+    for again. The newest `posts_per_month` posts before the month's end are read.
+    """
+    cfg = {**candidates_cfg, "past_sponsors": {**candidates_cfg["past_sponsors"], "linkedin_posts": posts_per_month}}
+    brief = Brief(event_name="back-test", profile=profile, event_date=None, city=None, audience_size=None,
+                  audience="", host_name="(back-test: no host)", host_website=None)
+    saved = {}
+    for start in months:
+        until = date(start.year + start.month // 12, start.month % 12 + 1, 1)
+
+        def month(until=until) -> int:
+            hits = linkedin_sponsor_pool(brief, client, db, run_id, cfg, ig_config, call_model,
+                                         today=until, until=until)
+            for h in hits:
+                evidence.save(db, run_id, f"company:{h.company_id}", h.facts)
+            return sum(len(h.facts) for h in hits)
+
+        saved[start.isoformat()[:7]] = run_step(db, run_id, f"collect:{profile}:{start.isoformat()[:7]}", month)
+    return saved
 
 
 def is_sponsor_fact(fact: Evidence) -> bool:

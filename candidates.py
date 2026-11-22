@@ -179,13 +179,20 @@ def _same_start(a: str, b: str) -> bool:
 
 def linkedin_sponsor_pool(brief: Brief, client: Any, db: sqlite3.Connection, run_id: str,
                           cfg: dict[str, Any], ig_config: dict[str, Any], call_model: CallModel,
-                          today: date | None = None) -> list[Hit]:
-    """Company posts about sponsoring this kind of event in the country (indexed LinkedIn posts)."""
+                          today: date | None = None, until: date | None = None) -> list[Hit]:
+    """Company posts about sponsoring this kind of event in the country (indexed LinkedIn posts).
+
+    until: only posts before this date (the newest first). The back-test (block 5) uses it
+    to collect posts month by month; a live run leaves it None.
+    """
     past = cfg["past_sponsors"]
+    dates = [{"field": "date_posted", "type": "=>", "value": _since(past["days"], today)}]
+    if until:
+        dates.append({"field": "date_posted", "type": "<", "value": until.isoformat()})
     body = {
         "filters": {"op": "and", "conditions": [
             {"field": "actor.actor_type", "type": "=", "value": "company"},
-            {"field": "date_posted", "type": "=>", "value": _since(past["days"], today)},
+            *dates,
             _any_of("text", "[.]", past["sponsor_words"]),
             _any_of("text", "[.]", past["event_words"][brief.profile]),
             # Posts by Indian companies, or posts that name the country.

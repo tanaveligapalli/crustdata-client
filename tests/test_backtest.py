@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 import agent_db  # noqa: E402
 import backtest  # noqa: E402
+import candidates  # noqa: E402
 import evidence  # noqa: E402
 from records import Evidence  # noqa: E402
 from tests.test_scoring import CONFIG as SCORING_CONFIG  # noqa: E402
@@ -167,6 +168,41 @@ class RunTest(unittest.TestCase):
         self.assertEqual(t["decided_share"], 0)
         self.assertEqual(t["status"], "cannot_verify")
         self.assertIn("pairs were decided", t["missing"])
+
+
+class FakePostSearch:
+    """Stands in for CrustdataClient: post search returns no posts; records every body."""
+
+    def __init__(self):
+        self.bodies = []
+
+    def call(self, path, body):
+        from types import SimpleNamespace
+        assert path == "/social_post/search"
+        self.bodies.append(body)
+        return SimpleNamespace(data={"posts": []}, retrieved_at="2026-11-22T09:00:00+00:00")
+
+
+class CollectTest(unittest.TestCase):
+    def test_month_starts(self):
+        from datetime import date
+        self.assertEqual(backtest.month_starts("2025-11", "2026-01"),
+                         [date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1)])
+
+    def test_each_month_ends_its_own_search_and_runs_once(self):
+        db = agent_db.connect(":memory:")
+        client = FakePostSearch()
+        cfg = candidates.load_config()
+        args = (backtest.month_starts("2025-12", "2026-01"), 5, "conference", client, db, "bt", cfg, {},
+                lambda system, user: ("{}", 0.0))
+        self.assertEqual(backtest.collect(*args), {"2025-12": 0, "2026-01": 0})
+        backtest.collect(*args)  # a restart: finished months are not fetched again
+        db.close()
+        self.assertEqual(len(client.bodies), 2)
+        ends = [c["value"] for b in client.bodies for c in b["filters"]["conditions"]
+                if c.get("field") == "date_posted" and c["type"] == "<"]
+        self.assertEqual(ends, ["2026-01-01", "2026-02-01"])
+        self.assertEqual([b["limit"] for b in client.bodies], [5, 5])
 
 
 class LoadTest(unittest.TestCase):

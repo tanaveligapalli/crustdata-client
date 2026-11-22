@@ -1,0 +1,64 @@
+{
+  "companies": [
+    {
+      "crustdata_company_id": 637868,
+      "basic_info": {
+        "name": "Cacheflow (Acquired by HubSpot)",
+        "crustdata_company_id": 637868,
+        "primary_domain": "getcacheflow.com",
+        "all_domains": [
+          "hubspot.com",
+          "getcacheflow.com"
+        ],
+        "website": "https://www.getcacheflow.com/?utm_medium=organic-social&utm_source=linkedin&utm_campaign=profile-bio",
+        "professional_network_url": "https://www.linkedin.com/company/getcacheflow",
+        "professional_network_id": "74279474",
+        "profile_name": "Cacheflow (Acquired by HubSpot)",
+        "logo_permalink": "https://crustdata-media.s3.us-east-2.amazonaws.com/company/4d9ff4e129a5654131875b5a2ba08a90f0ed51d3fbf81f13a31d8b428799f1c2.jpg",
+        "description": "Cacheflow is an integrated CPQ, billing, and subscription management platform designed to close and expand SaaS deals seamlessly.Customers choose Cacheflow for our no-code design, easy UX, low cost of maintenance, and flexible integrations and API's.",
+        "company_type": "Privately Held",
+        "status": "active",
+        "year_founded": 2021,
+        "employee_count_range": "11-50",
+        "markets": [
+          "PRIVATE"
+        ]
+      },
+      "headcount": {
+        "total": 14,
+        "largest_headcount_country": "USA",
+        "growth_percent": {
+          "1m": -6.666666666666667,
+          "3m": -6.666666666666667,
+          "6m": -6.666666666666667,
+          "12m": -17.647058823529413
+        },
+        "growth_absolute": {
+          "1m": -1,
+          "3m": -1,
+          "6m": -1,
+          "12m": -3
+        }
+      },
+      "funding": {
+        "is_investor": false,
+        "contact_email": "info@getcacheflow.com",
+        "phone_number": "",
+        "total_investment_usd": 16000000.0,
+        "last_round_amount_usd": 10000000.0,
+        "last_fundraise_date": "2022-12-06",
+        "last_round_type": "seed",
+        "investors": [
+          "Ameet Patel",
+          "Firebolt Ventures",
+          "Google Ventures",
+          "Notable Capital",
+          "Pelion Venture Partners",
+          "Ron Pragides"
+        ]
+      }
+    }
+  ],
+  "next_cursor": "H4sIAAAAAAAA_xTJwQ7CIAwA0F8hPe_AqLRlv2LMQgtkByNxYwdj_Hez8_vC-6z7Z93yscHiwFBDJk4hSuOMFgx9VBPFpKGmqmhzbUSxVC5RtRWh5i2n2YRv2mBycPR9wOLuhCwkj8nB6CM_V-vn6wL2v38AAAD__32RYwd3AAAA",
+  "total_count": 70
+}

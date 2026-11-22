@@ -1,0 +1,66 @@
+{
+  "job_listings": [
+    {
+      "job_details": {
+        "title": "Custom Software Engineer",
+        "url": "https://www.linkedin.com/jobs/view/4492891970"
+      },
+      "location": {
+        "country": "India"
+      },
+      "metadata": {
+        "date_added": "2026-11-21T21:34:03"
+      }
+    },
+    {
+      "job_details": {
+        "title": "AI / ML Engineer",
+        "url": "https://www.linkedin.com/jobs/view/4493106426"
+      },
+      "location": {
+        "country": "India"
+      },
+      "metadata": {
+        "date_added": "2026-11-21T21:33:35"
+      }
+    },
+    {
+      "job_details": {
+        "title": "Software Engineer",
+        "url": "https://www.linkedin.com/jobs/view/4492319532"
+      },
+      "location": {
+        "country": "United States"
+      },
+      "metadata": {
+        "date_added": "2026-11-21T21:24:39"
+      }
+    },
+    {
+      "job_details": {
+        "title": "Software Engineer, SMS Adapter",
+        "url": "https://www.linkedin.com/jobs/view/4492313893"
+      },
+      "location": {
+        "country": "United States"
+      },
+      "metadata": {
+        "date_added": "2026-11-21T21:19:14"
+      }
+    },
+    {
+      "job_details": {
+        "title": "Software Engineer New Grad, Machine Learning Platform - Quora (Remote)",
+        "url": "https://www.linkedin.com/jobs/view/4492331065"
+      },
+      "location": {
+        "country": "United States"
+      },
+      "metadata": {
+        "date_added": "2026-11-21T21:08:21"
+      }
+    }
+  ],
+  "next_cursor": "H4sIAAAAAAAA_xTLS47DIAwG4Ksg1lkYfgw4VxmNImKDshhN1DwWVdW7Vz3A9_KPux_PZWvn5mfn19LIMABRrqSxBNNGls2MNGqhVCkg6Vj7MGDAJHcJIScLMHQ_OX_ux-Vn9xOKcBQGBSKaHDIypNYaOQlz_Z2cv_ar_S263_9fwRQ5or4_AQAA__9sSIvklQAAAA==",
+  "total_count": 5025238
+}

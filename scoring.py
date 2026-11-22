@@ -54,10 +54,22 @@ def _excluded_category(candidate: Candidate, brief: Brief, config: dict[str, Any
     return None
 
 
+def company_key(name: str) -> str:
+    """'Infosys Limited', 'Infosys Ltd.' and 'infosys' -> 'infosys'.
+
+    Block 3b's normalise plus "limited", which it keeps on purpose (dropping it
+    would widen /company/identify lookups); here we only compare names.
+    """
+    key = normalise(name)[0]
+    while key.endswith(" limited"):
+        key = normalise(key[: -len(" limited")])[0]
+    return key
+
+
 def hard_filter(candidate: Candidate, brief: Brief, config: dict[str, Any]) -> str | None:
     """The reason this candidate must not be pitched, or None."""
-    current = {normalise(s)[0] for s in brief.current_sponsors}
-    if normalise(candidate.name)[0] in current:
+    current = {company_key(s) for s in brief.current_sponsors}
+    if company_key(candidate.name) in current:
         return "already a sponsor of this event"
     return _excluded_category(candidate, brief, config)
 

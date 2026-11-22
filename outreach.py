@@ -174,32 +174,53 @@ def find_contact(client, candidate: Candidate, config: dict[str, Any]) -> Contac
         "limit": 10,
     }
     response = client.call("/person/search", body)
-    best, best_rank = None, len(roles)
+    best, best_rank, best_job = None, len(roles), None
     for person in (response.data or {}).get("profiles", []):
-        title = (person.get("basic_profile") or {}).get("current_title") or ""
-        if any(word.lower() in title.lower() for word in config.get("contact_exclude_titles", [])):
+        job = job_here(person, candidate.company_id)
+        if job is None:
+            continue                       # left the company, or their current job is elsewhere
+        title = job.get("title") or ""
+        if any(has_words(title, word) for word in config.get("contact_exclude_titles", [])):
             continue                       # "Private Equity Partnerships" is not brand partnerships
-        rank = next((i for i, role in enumerate(roles) if role.lower() in title.lower()), None)
+        rank = next((i for i, role in enumerate(roles) if has_words(title, role)), None)
         if rank is not None and rank < best_rank:
-            best, best_rank = person, rank
+            best, best_rank, best_job = person, rank, job
     if best is None:
         return None
 
-    profile = best["basic_profile"]
+    name, title, start = best["basic_profile"]["name"], best_job["title"], best_job.get("start_date")
     url = ((best.get("social_handles") or {}).get("professional_network_identifier") or {}).get("profile_url", "")
-    current = ((best.get("experience") or {}).get("employment_details") or {}).get("current") or [{}]
-    start = (current[0] or {}).get("start_date")
     evidence = Evidence(
-        claim=f"{profile['name']} is {profile['current_title']} at {candidate.name}",
-        value=profile["current_title"],
+        claim=f"{name} is {title} at {candidate.name}",
+        value=title,
         source_url="crustdata:/person/search",
-        quote=f"basic_profile.current_title = {profile['current_title']}",
+        quote=f"experience.employment_details.current[].title = {title}",
         record_date=start[:10] if start else None,
         retrieved_at=response.retrieved_at,
         source_type="crustdata:/person/search",
     )
-    return Contact(company_id=candidate.company_id, name=profile["name"], title=profile["current_title"],
+    return Contact(company_id=candidate.company_id, name=name, title=title,
                    profile_url=url, business_email=None, evidence=[evidence])
+
+
+def job_here(person: dict[str, Any], company_id: int) -> dict[str, Any] | None:
+    """The person's current job at this company: same company ID and no end date.
+
+    The headline title can be about another job, and a profile can still list a job
+    the person has left (end date set): neither makes them our contact.
+    """
+    jobs = ((person.get("experience") or {}).get("employment_details") or {}).get("current") or []
+    return next((j for j in jobs if j and j.get("crustdata_company_id") == company_id
+                 and not j.get("end_date") and j.get("title")), None)
+
+
+def has_words(text: str, words: str) -> bool:
+    """Whole words, plural allowed: "Partnership" is in "Partnerships Lead", "intern" is not in
+    "International". No plural for short acronyms: "CMO" must not match "CMOS"."""
+    parts = words.split()
+    plural = "s?" if len(parts[-1]) > 3 else ""
+    pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in parts) + plural + r"(?!\w)"
+    return re.search(pattern, text, re.IGNORECASE) is not None
 
 
 # -- fact checks -------------------------------------------------------------------

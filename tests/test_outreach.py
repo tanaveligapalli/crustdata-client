@@ -296,6 +296,53 @@ class FindContactTests(unittest.TestCase):
         self.assertEqual(found.name, "Neha Iyer")        # proves the exclusion rule is what stopped it
 
 
+class ContactEdgeCases(unittest.TestCase):
+    """Block 7 hard case "a contact who has left", and titles that only look like a match."""
+
+    class Client:
+        def __init__(self, profiles):
+            self.profiles = profiles
+
+        def call(self, path, body):
+            from crustdata_client import ApiResponse
+            return ApiResponse({"profiles": self.profiles}, "2026-11-22T10:00:00+00:00", False, 0.1)
+
+    CFG = {**CONFIG, "contact_roles": ["Head of Partnerships", "Partnerships", "Marketing Manager", "CMO"],
+           "contact_exclude_titles": ["private equity", "intern", "internship", "trainee"]}
+
+    @staticmethod
+    def person(name, title, company_id=111111, end_date=None, headline_title=None):
+        return {"basic_profile": {"name": name, "current_title": headline_title or title},
+                "experience": {"employment_details": {"current": [
+                    {"title": title, "crustdata_company_id": company_id, "start_date": "2024-01-01T00:00:00",
+                     "end_date": end_date}]}}}
+
+    def find(self, *profiles):
+        return outreach.find_contact(self.Client(list(profiles)), candidate(111111, "Example Corp"), self.CFG)
+
+    def test_contact_who_has_left_is_skipped(self):
+        found = self.find(self.person("Left Person", "Head of Partnerships", end_date="2026-10-01T00:00:00"),
+                          self.person("Asha Rao", "Marketing Manager"))
+        self.assertEqual(found.name, "Asha Rao")
+
+    def test_title_at_another_company_is_not_used(self):
+        # Their headline says Head of Partnerships, but that job is at another company.
+        found = self.find(self.person("Elsewhere", "Head of Partnerships", company_id=999),
+                          self.person("Asha Rao", "Marketing Manager"))
+        self.assertEqual(found.name, "Asha Rao")
+        self.assertIsNone(self.find(self.person("Elsewhere", "Head of Partnerships", company_id=999)))
+
+    def test_title_and_start_date_come_from_the_job_at_this_company(self):
+        found = self.find(self.person("Asha Rao", "Marketing Manager", headline_title="Speaker | Author"))
+        self.assertEqual(found.title, "Marketing Manager")
+        self.assertEqual(found.evidence[0].record_date, "2024-01-01")
+
+    def test_whole_words_only(self):
+        self.assertIsNone(self.find(self.person("A", "Partnerships Intern"), self.person("B", "CMOS Design Engineer")))
+        found = self.find(self.person("C", "International Partnerships Manager"))
+        self.assertEqual(found.name, "C")       # "intern" is not a word in "International"
+
+
 class FollowUpTests(Base):
     def test_two_follow_ups_then_no_response(self):
         s = Sender()

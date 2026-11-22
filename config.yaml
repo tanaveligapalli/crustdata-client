@@ -96,14 +96,19 @@ outreach:                    # block 6: outreach and replies
     - Head of Marketing
     - Marketing Manager
     - CMO
-  contact_exclude_titles:    # a title containing any of these is never picked, whatever else it says
-    - private equity
+  contact_exclude_titles:    # a title with any of these words is never picked, whatever else it says
+    - private equity           # whole words, plural allowed ("investor" also matches "Investors")
     - venture
     - investor
-    - recruit
+    - recruiter
+    - recruiting
+    - recruitment
     - talent
     - legal
     - finance
+    - intern                   # not a decision-maker; "International" doesn't match
+    - internship
+    - trainee
   follow_up_after_days: 3
   max_follow_ups: 2
   meeting_minutes: 30
